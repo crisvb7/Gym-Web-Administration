@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, X, Loader2, Trash2, MapPin, Users, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, X, Loader2, Trash2, MapPin, Users, Calendar, ChevronLeft, ChevronRight, Edit2 } from "lucide-react";
 import { supabase } from './lib/supabase';
 // 1. Importamos el nuevo componente
 import DetallesSesion from './DetallesSesion';
@@ -10,9 +10,12 @@ export function ScheduleManager() {
   const [loading, setLoading] = useState(true);
   const [weekOffset, setWeekOffset] = useState(0); 
 
-  // Estados del Modal de Creación
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  // Estados del Modal de Formulario (Crear/Editar)
+  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
+  const [editingClassId, setEditingClassId] = useState<string | null>(null); // NUEVO: Para saber si editamos
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Campos del formulario
   const [title, setTitle] = useState('');
   const [trainer, setTrainer] = useState('');
   const [date, setDate] = useState('');
@@ -22,7 +25,7 @@ export function ScheduleManager() {
   const [location, setLocation] = useState('Zona Principal');
   const [intensityBadge, setIntensityBadge] = useState('Media');
 
-  // Estado simplificado: solo necesitamos saber qué clase se ha pulsado
+  // Estado para ver los detalles
   const [selectedClass, setSelectedClass] = useState<any>(null);
 
   const weekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -73,7 +76,40 @@ export function ScheduleManager() {
     fetchClasses();
   }, [weekOffset]);
 
-  const handleCreateClass = async (e: React.FormEvent) => {
+  // Función auxiliar para cerrar y limpiar el formulario
+  const closeAndResetForm = () => {
+    setIsFormModalOpen(false);
+    setEditingClassId(null);
+    setTitle(''); setTrainer(''); setDate(''); setTime('08:00');
+    setDuration('60'); setMaxCapacity('20'); setLocation('Zona Principal'); setIntensityBadge('Media');
+  };
+
+  // NUEVO: Función para abrir el modal pre-rellenado con los datos de la clase
+  const handleEditClick = (cls: any, e: React.MouseEvent) => {
+    e.stopPropagation(); // Para que no se abra la vista de detalles de fondo
+    
+    const startDate = new Date(cls.start_time);
+    const endDate = new Date(cls.end_time);
+    
+    // Calculamos la duración real en minutos
+    const durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+
+    setTitle(cls.title);
+    setTrainer(cls.trainer);
+    setDate(getLocalDateString(startDate));
+    // Formateamos la hora asegurando que tenga 2 dígitos (ej: 09:30)
+    setTime(startDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false }));
+    setDuration(durationMinutes.toString());
+    setMaxCapacity(cls.max_capacity.toString());
+    setLocation(cls.location || 'Zona Principal');
+    setIntensityBadge(cls.intensity_badge || 'Media');
+
+    setEditingClassId(cls.id);
+    setIsFormModalOpen(true);
+  };
+
+  // ACTUALIZADO: Sirve tanto para CREAR como para EDITAR
+  const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
@@ -81,29 +117,43 @@ export function ScheduleManager() {
       const startDateTime = new Date(`${date}T${time}:00`);
       const endDateTime = new Date(startDateTime.getTime() + parseInt(duration) * 60000);
 
-      const { error } = await supabase.from('classes').insert([
-        {
-          title, trainer,
-          start_time: startDateTime.toISOString(),
-          end_time: endDateTime.toISOString(),
-          max_capacity: parseInt(maxCapacity),
-          location, intensity_badge: intensityBadge,
+      const classData = {
+        title, trainer,
+        start_time: startDateTime.toISOString(),
+        end_time: endDateTime.toISOString(),
+        max_capacity: parseInt(maxCapacity),
+        location, intensity_badge: intensityBadge,
+      };
+
+      if (editingClassId) {
+        // MODO EDICIÓN
+        const { data, error } = await supabase
+          .from('classes')
+          .update(classData)
+          .eq('id', editingClassId)
+          .select(); // <-- El .select() es la clave, obliga a Supabase a responder
+
+        if (error) throw error;
+        
+        // Si Supabase no devuelve nada, ¡es que lo ha bloqueado!
+        if (!data || data.length === 0) {
+          throw new Error("Supabase ha bloqueado la edición por falta de permisos RLS (UPDATE).");
         }
-      ]);
+      } else {
+        // MODO CREACIÓN
+        const { error } = await supabase.from('classes').insert([classData]);
+        if (error) throw error;
+      }
 
-      if (error) throw error;
-
-      setIsCreateModalOpen(false);
-      setTitle(''); setTrainer(''); setDate(''); setTime('08:00');
+      closeAndResetForm();
       fetchClasses();
     } catch (error: any) {
-      alert("Error al crear la clase: " + error.message);
+      alert(`Error al ${editingClassId ? 'editar' : 'crear'} la clase: ` + error.message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Modificamos ligeramente la función de borrar para que acepte el evento como opcional
   const handleDeleteClass = async (id: string, classTitle: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation(); 
     if (window.confirm(`¿Cancelar la clase de ${classTitle}?`)) {
@@ -164,7 +214,10 @@ export function ScheduleManager() {
         </div>
 
         <button 
-          onClick={() => setIsCreateModalOpen(true)} 
+          onClick={() => {
+            setEditingClassId(null);
+            setIsFormModalOpen(true);
+          }} 
           className="bg-[#E31C25] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-[#A6151B] shadow-[0_0_15px_rgba(227,28,37,0.2)] hover:shadow-[0_0_20px_rgba(227,28,37,0.4)] transition-all shrink-0"
         >
           <Plus size={20} /> Nueva Clase
@@ -214,17 +267,28 @@ export function ScheduleManager() {
                       {classesInSlot.map((cls) => (
                         <div 
                           key={cls.id} 
-                          onClick={() => setSelectedClass(cls)} // <--- Aquí solo guardamos el estado
+                          onClick={() => setSelectedClass(cls)}
                           className="bg-[#E31C25]/10 border border-[#E31C25]/30 rounded-lg p-2 group relative hover:bg-[#E31C25]/20 transition-all cursor-pointer mt-1 hover:scale-[1.02] shadow-sm"
                           style={{ minHeight: '80px' }}
                         >
-                          <button 
-                            onClick={(e) => handleDeleteClass(cls.id, cls.title, e)}
-                            className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 p-1 bg-black/50 rounded text-red-400 hover:text-red-500 hover:bg-black transition-all z-10"
-                            title="Cancelar Clase"
-                          >
-                            <Trash2 size={12} />
-                          </button>
+                          {/* BOTONES FLOTANTES DE EDICIÓN Y BORRADO */}
+                          <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 z-10 transition-all">
+                            <button 
+                              onClick={(e) => handleEditClick(cls, e)}
+                              className="p-1 bg-black/50 rounded text-blue-400 hover:text-blue-500 hover:bg-black transition-colors"
+                              title="Editar Clase"
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                            <button 
+                              onClick={(e) => handleDeleteClass(cls.id, cls.title, e)}
+                              className="p-1 bg-black/50 rounded text-red-400 hover:text-red-500 hover:bg-black transition-colors"
+                              title="Cancelar Clase"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+
                           <div className="text-[10px] font-bold text-[#E31C25] mb-1">
                             {new Date(cls.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                           </div>
@@ -243,19 +307,18 @@ export function ScheduleManager() {
         </div>
       </div>
 
-      {/* Modal 1: Creación de Clase */}
-      {isCreateModalOpen && (
+      {/* Modal 1: Formulario (Creación y Edición) */}
+      {isFormModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-xl rounded-3xl p-8 relative shadow-2xl animate-in zoom-in-95 duration-200">
-            <button onClick={() => setIsCreateModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors">
+            <button onClick={closeAndResetForm} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors">
               <X size={24} />
             </button>
             <h2 className="text-2xl font-bold mb-6 text-white flex items-center gap-2">
-              <Calendar className="text-[#E31C25]" /> Nueva Sesión
+              <Calendar className="text-[#E31C25]" /> {editingClassId ? 'Editar Sesión' : 'Nueva Sesión'}
             </h2>
             
-            <form onSubmit={handleCreateClass} className="space-y-5">
-              {/* Contenido del formulario (lo he dejado exactamente igual para ahorrar espacio visual, funciona perfecto) */}
+            <form onSubmit={handleSaveClass} className="space-y-5">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Nombre de la clase</label>
@@ -283,6 +346,7 @@ export function ScheduleManager() {
                     <option value="45">45 min</option>
                     <option value="60">1 hora</option>
                     <option value="90">1.5 horas</option>
+                    <option value="120">2 horas</option>
                   </select>
                 </div>
               </div>
@@ -303,18 +367,18 @@ export function ScheduleManager() {
               </div>
 
               <button disabled={isSubmitting} className="w-full bg-[#E31C25] text-white font-bold py-4 rounded-xl mt-6 hover:bg-[#A6151B] transition-colors flex items-center justify-center gap-2">
-                {isSubmitting ? <Loader2 className="animate-spin w-5 h-5" /> : 'Guardar en Calendario'}
+                {isSubmitting ? <Loader2 className="animate-spin w-5 h-5" /> : (editingClassId ? 'Guardar Cambios' : 'Guardar en Calendario')}
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* 2. REEMPLAZAMOS todo el Modal 2 por el componente limpio */}
+      {/* Modal 2: Detalles de la sesión */}
       <DetallesSesion 
         sesion={selectedClass} 
         onClose={() => setSelectedClass(null)} 
-        onDeleteRequest={handleDeleteClass} // Le pasamos la función para que el botón de borrar funcione
+        onDeleteRequest={handleDeleteClass}
       />
 
     </div>
