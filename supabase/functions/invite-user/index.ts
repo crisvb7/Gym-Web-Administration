@@ -22,6 +22,10 @@ serve(async (req) => {
 
     const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email)
 
+    const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: 'https://admin.crisvb7.es/crear-password'
+    });
+
     if (error) {
       console.error("❌ ERROR DE SUPABASE AUTH:", error) // <--- CHIVATO 2
       throw error
