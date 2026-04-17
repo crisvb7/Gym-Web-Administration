@@ -184,23 +184,25 @@ export default function App() {
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0
       `}>
-        <div className="p-8 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#E31C25] rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(227,28,37,0.4)]">
+        {/* --- CABECERA DE LA BARRA LATERAL CORREGIDA --- */}
+        <div className="p-5 flex justify-between items-center">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 shrink-0 bg-[#E31C25] rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(227,28,37,0.4)]">
               <Activity className="text-white w-6 h-6" />
             </div>
-            <span className="text-xl font-black tracking-tighter">
+            {/* Se ha reducido el tamaño del texto a text-lg y añadido truncate para que no rompa el diseño */}
+            <span className="text-lg font-black tracking-tighter truncate">
               <span className="text-[#E31C25]">DANIEL</span>MIRANDA
             </span>
           </div>
           
-          {/* Botón Cerrar (Solo Móvil) */}
-          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white">
+          {/* Botón Cerrar (Solo Móvil) - Se le ha añadido shrink-0 para que nunca se aplaste */}
+          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white shrink-0 ml-2">
             <X size={24} />
           </button>
         </div>
 
-        <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
+        <nav className="flex-1 px-4 space-y-2 overflow-y-auto mt-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
