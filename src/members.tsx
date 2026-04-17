@@ -195,7 +195,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
     setShowWorkoutsModal(true);
     setLoadingWorkouts(true);
     
-    // Hacemos un JOIN para traernos el nombre del ejercicio de la otra tabla
     const { data, error } = await supabase
       .from('workout_logs')
       .select(`
@@ -259,13 +258,15 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
       </div>
 
       {/* --- TABLA PRINCIPAL --- */}
-      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl overflow-visible shadow-xl">
-        <table className="w-full text-left">
+      {/* Añadimos overflow-x-auto para que, en caso extremo, no rompa la pantalla, aunque con el truncate no debería hacer falta */}
+      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl shadow-xl overflow-x-auto">
+        <table className="w-full text-left min-w-full">
           <thead className="bg-[#121212] border-b border-[#2a2a2a] text-gray-500 text-xs uppercase font-bold tracking-wider">
             <tr>
-              <th className="p-5">Usuario</th>
-              <th className="p-5">Rol / Permisos</th>
-              <th className="p-5 text-right">Gestión</th>
+              {/* Ajuste de padding en cabeceras para móvil */}
+              <th className="p-3 md:p-5">Usuario</th>
+              <th className="p-3 md:p-5">Rol</th>
+              <th className="p-3 md:p-5 text-right">Gestión</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#2a2a2a]">
@@ -275,19 +276,30 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
               <tr><td colSpan={3} className="p-12 text-center text-gray-500">No hay usuarios registrados en esta categoría.</td></tr>
             ) : displayedMembers.map((member) => (
               <tr key={member.id} className="hover:bg-white/[0.02] transition-colors group">
-                <td className="p-5 flex items-center gap-4">
-                  <div className="w-12 h-12 bg-[#121212] rounded-xl flex items-center justify-center text-[#E31C25] font-bold border border-[#2a2a2a] shadow-sm group-hover:border-[#E31C25]/30 transition-colors">
+                
+                {/* --- CELDA DEL USUARIO --- */}
+                {/* Ajustamos padding para móvil: p-3 en vez de p-5 */}
+                <td className="p-3 md:p-5 flex items-center gap-3 md:gap-4">
+                  {/* Reducimos ligeramente el avatar en móvil */}
+                  <div className="w-10 h-10 md:w-12 md:h-12 shrink-0 bg-[#121212] rounded-xl flex items-center justify-center text-[#E31C25] font-bold border border-[#2a2a2a] shadow-sm group-hover:border-[#E31C25]/30 transition-colors">
                     {member.first_name?.[0] || 'U'}
                   </div>
-                  <div>
-                    <p className="font-bold text-white text-base">{member.first_name} {member.last_name}</p>
-                    <p className="text-sm text-zinc-500 flex items-center gap-1 mt-0.5">
-                      <Mail className="w-3 h-3" /> {member.email || 'Sin email'}
+                  {/* min-w-0 es vital para que el truncate (puntos suspensivos) funcione dentro de un flex */}
+                  <div className="min-w-0">
+                    <p className="font-bold text-white text-sm md:text-base truncate">{member.first_name} {member.last_name}</p>
+                    {/* TRUCO DEL CORREO: truncate y max-w para móviles */}
+                    <p className="text-xs md:text-sm text-zinc-500 flex items-center gap-1 mt-0.5">
+                      <Mail className="w-3 h-3 shrink-0" />
+                      <span className="truncate max-w-[100px] sm:max-w-[200px] md:max-w-none" title={member.email}>
+                        {member.email || 'Sin email'}
+                      </span>
                     </p>
                   </div>
                 </td>
-                <td className="p-5">
-                  <span className={`px-3 py-1 text-xs font-bold uppercase rounded-lg border ${
+                
+                {/* --- CELDA DEL ROL --- */}
+                <td className="p-3 md:p-5 whitespace-nowrap">
+                  <span className={`px-2 py-1 md:px-3 md:py-1 text-[10px] md:text-xs font-bold uppercase rounded-lg border ${
                     member.role === 'admin' 
                       ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' 
                       : member.role === 'trainer'
@@ -298,22 +310,24 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                   </span>
                 </td>
                 
-                {/* Menú de los 3 puntos */}
-                <td className="p-5 text-right relative">
+                {/* --- CELDA DE GESTIÓN (Menú) --- */}
+                <td className="p-3 md:p-5 text-right relative whitespace-nowrap">
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
                       setOpenDropdownId(openDropdownId === member.id ? null : member.id);
                     }}
-                    className="p-2 text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded-xl transition-colors"
+                    className="p-1.5 md:p-2 text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded-xl transition-colors"
                   >
                     <MoreVertical size={20} />
                   </button>
 
+                  {/* Dropdown del menú */}
                   {openDropdownId === member.id && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setOpenDropdownId(null)}></div>
-                      <div className="absolute right-8 top-12 w-56 bg-[#121212] border border-[#2a2a2a] rounded-xl shadow-2xl z-50 overflow-hidden text-left animate-in fade-in slide-in-from-top-2 duration-200">
+                      {/* Ajustamos la posición en móvil para que no se salga de la pantalla */}
+                      <div className="absolute right-4 md:right-8 top-10 md:top-12 w-48 md:w-56 bg-[#121212] border border-[#2a2a2a] rounded-xl shadow-2xl z-50 overflow-hidden text-left animate-in fade-in slide-in-from-top-2 duration-200">
                         
                         {(member.role === 'client' || !member.role) && (
                           <>
@@ -365,7 +379,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
         </table>
       </div>
 
-      {/* --- EL RESTO DE MODALES SE MANTIENEN EXACTAMENTE IGUAL --- */}
+      {/* --- MODALES --- */}
       
       {/* Modal Límite Calórico */}
       {showKcalModal && kcalAthlete && (
