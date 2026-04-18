@@ -108,7 +108,7 @@ export function ScheduleManager() {
     setIsFormModalOpen(true);
   };
 
-  // ACTUALIZADO: Sirve tanto para CREAR como para EDITAR
+  // ACTUALIZADO: Ahora incluye validación para evitar solapamientos
   const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -116,6 +116,26 @@ export function ScheduleManager() {
     try {
       const startDateTime = new Date(`${date}T${time}:00`);
       const endDateTime = new Date(startDateTime.getTime() + parseInt(duration) * 60000);
+
+      // --- VALIDACIÓN DE SOLAPAMIENTO ---
+      // Buscamos si existe alguna clase que choque con el nuevo horario
+      const hasOverlap = classes.some(cls => {
+        // Si estamos editando, ignoramos la clase actual para que no choque consigo misma
+        if (editingClassId && cls.id === editingClassId) return false;
+
+        const existingStart = new Date(cls.start_time);
+        const existingEnd = new Date(cls.end_time);
+
+        // Lógica: (InicioA < FinB) && (FinA > InicioB)
+        return startDateTime < existingEnd && endDateTime > existingStart;
+      });
+
+      if (hasOverlap) {
+        alert("⚠️ No se puede crear la clase: Ya existe otra actividad programada en este horario.");
+        setIsSubmitting(false);
+        return; // Detenemos la ejecución
+      }
+      // ----------------------------------
 
       const classData = {
         title, trainer,
@@ -131,13 +151,12 @@ export function ScheduleManager() {
           .from('classes')
           .update(classData)
           .eq('id', editingClassId)
-          .select(); // <-- El .select() es la clave, obliga a Supabase a responder
+          .select();
 
         if (error) throw error;
         
-        // Si Supabase no devuelve nada, ¡es que lo ha bloqueado!
         if (!data || data.length === 0) {
-          throw new Error("Supabase ha bloqueado la edición por falta de permisos RLS (UPDATE).");
+          throw new Error("Supabase ha bloqueado la edición por falta de permisos RLS.");
         }
       } else {
         // MODO CREACIÓN
