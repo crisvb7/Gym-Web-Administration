@@ -10,7 +10,7 @@ export function NutritionManager() {
   // --- ESTADOS DE FILTRO Y BÚSQUEDA ---
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('Todas');
-  const [sortOrder, setSortOrder] = useState('default'); // 'default', 'asc', 'desc'
+  const [sortOrder, setSortOrder] = useState('default'); 
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -27,6 +27,10 @@ export function NutritionManager() {
     user_id: '', assigned_date: '', meal_type: 'Almuerzo'
   });
 
+  // NUEVOS ESTADOS: Buscador de Atletas
+  const [clientSearch, setClientSearch] = useState('');
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
+
   const fetchData = async () => {
     setLoading(true);
     const { data: recipesData } = await supabase.from('recipes').select('*').order('created_at', { ascending: false });
@@ -42,14 +46,13 @@ export function NutritionManager() {
     fetchData();
   }, []);
 
-  // --- LÓGICA DE FILTRADO Y ORDENACIÓN ---
   const processedRecipes = recipes
     .filter(recipe => filterCategory === 'Todas' || recipe.category === filterCategory)
     .filter(recipe => recipe.name.toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => {
       if (sortOrder === 'asc') return a.calories - b.calories;
       if (sortOrder === 'desc') return b.calories - a.calories;
-      return 0; // default (por fecha de creación, como viene de la DB)
+      return 0; 
     });
 
   const handleOpenCreate = () => {
@@ -142,13 +145,16 @@ export function NutritionManager() {
 
   const openAssignModal = (recipe: any) => {
     setRecipeToAssign(recipe);
-    setAssignData({ user_id: clients[0]?.id || '', assigned_date: new Date().toISOString().split('T')[0], meal_type: recipe.category });
+    // Reiniciamos los estados de búsqueda
+    setAssignData({ user_id: '', assigned_date: new Date().toISOString().split('T')[0], meal_type: recipe.category });
+    setClientSearch('');
+    setShowClientDropdown(false);
     setIsAssignModalOpen(true);
   };
 
   const handleAssignMeal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!assignData.user_id) return alert("Selecciona un cliente");
+    if (!assignData.user_id) return alert("Por favor, busca y selecciona un atleta de la lista.");
 
     setIsSubmitting(true);
     const { error } = await supabase.from('assigned_meals').insert([{
@@ -167,6 +173,11 @@ export function NutritionManager() {
     setIsSubmitting(false);
   };
 
+  // Lógica para filtrar los clientes en base a lo que se escribe
+  const filteredClients = clients.filter(client => 
+    `${client.first_name} ${client.last_name}`.toLowerCase().includes(clientSearch.toLowerCase())
+  );
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -179,10 +190,8 @@ export function NutritionManager() {
         </button>
       </div>
 
-      {/* --- BARRA DE HERRAMIENTAS (Buscador y Filtros) --- */}
       <div className="flex flex-col xl:flex-row gap-4 bg-[#1a1a1a] p-4 rounded-2xl border border-[#2a2a2a] shadow-lg">
         
-        {/* Buscador */}
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
           <input 
@@ -194,7 +203,6 @@ export function NutritionManager() {
           />
         </div>
 
-        {/* Filtros (Categoría y Orden) */}
         <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
           <div className="relative w-full sm:w-auto">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
@@ -319,7 +327,7 @@ export function NutritionManager() {
                 <textarea className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none min-h-[120px]" value={newRecipe.instructions} onChange={e => setNewRecipe({...newRecipe, instructions: e.target.value})} placeholder="1. Mezcla la avena...&#10;2. Calienta en el microondas..." />
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Momento ideal</label>
                   <select className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none appearance-none" value={newRecipe.category} onChange={e => setNewRecipe({...newRecipe, category: e.target.value})}>
@@ -365,17 +373,62 @@ export function NutritionManager() {
             <p className="text-sm text-gray-400 mb-6">Enviando: <span className="font-bold text-[#E31C25]">{recipeToAssign.name}</span></p>
             
             <form onSubmit={handleAssignMeal} className="space-y-5">
-              <div>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Seleccionar Atleta</label>
-                <select required className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" value={assignData.user_id} onChange={e => setAssignData({...assignData, user_id: e.target.value})}>
-                  <option value="" disabled>-- Elige un cliente --</option>
-                  {clients.map(client => (
-                    <option key={client.id} value={client.id}>{client.first_name} {client.last_name}</option>
-                  ))}
-                </select>
+              
+              {/* MAGIA: Nuestro buscador personalizado de atletas */}
+              <div className="relative">
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Buscar Atleta</label>
+                
+                <div className="relative z-50">
+                  <Search className="absolute left-3 top-3.5 text-gray-500 w-5 h-5" />
+                  <input 
+                    type="text" 
+                    placeholder="Escribe el nombre..." 
+                    className="w-full bg-[#1a1a1a] border border-[#2a2a2a] py-3 pl-10 pr-4 rounded-xl text-white focus:border-[#E31C25] outline-none transition-colors"
+                    value={clientSearch}
+                    onChange={(e) => {
+                      setClientSearch(e.target.value);
+                      setShowClientDropdown(true);
+                      // Si empieza a escribir de nuevo, quitamos la selección anterior
+                      setAssignData({...assignData, user_id: ''}); 
+                    }}
+                    onFocus={() => setShowClientDropdown(true)}
+                  />
+                  
+                  {/* Desplegable de resultados */}
+                  {showClientDropdown && (
+                    <>
+                      {/* Capa invisible para cerrar el menú si haces clic fuera */}
+                      <div className="fixed inset-0 z-40" onClick={() => setShowClientDropdown(false)}></div>
+                      
+                      <div className="absolute z-50 w-full mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl shadow-2xl max-h-48 overflow-y-auto custom-scrollbar">
+                        {filteredClients.length > 0 ? (
+                          filteredClients.map(client => (
+                            <button
+                              key={client.id}
+                              type="button"
+                              className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-[#E31C25] hover:text-white transition-colors border-b border-[#2a2a2a] last:border-b-0 flex items-center gap-3"
+                              onClick={() => {
+                                setAssignData({...assignData, user_id: client.id});
+                                setClientSearch(`${client.first_name} ${client.last_name}`);
+                                setShowClientDropdown(false);
+                              }}
+                            >
+                              <div className="w-6 h-6 rounded-full bg-[#121212] border border-[#2a2a2a] flex items-center justify-center text-[10px] font-bold text-[#E31C25]">
+                                {client.first_name[0]}
+                              </div>
+                              {client.first_name} {client.last_name}
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-4 py-4 text-sm text-gray-500 text-center">No se encontraron atletas</div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Fecha</label>
                   <input type="date" required className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none [color-scheme:dark]" value={assignData.assigned_date} onChange={e => setAssignData({...assignData, assigned_date: e.target.value})} />
@@ -393,7 +446,7 @@ export function NutritionManager() {
                 </div>
               </div>
 
-              <button type="submit" disabled={isSubmitting} className="w-full bg-[#E31C25] text-white font-bold py-4 rounded-xl mt-6 hover:bg-[#A6151B] transition-colors flex items-center justify-center gap-2">
+              <button type="submit" disabled={isSubmitting || !assignData.user_id} className="w-full bg-[#E31C25] text-white font-bold py-4 rounded-xl mt-6 hover:bg-[#A6151B] transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
                 {isSubmitting ? <Loader2 className="animate-spin w-5 h-5" /> : 'Confirmar Asignación'}
               </button>
             </form>
