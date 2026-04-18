@@ -185,6 +185,13 @@ export function ScheduleManager() {
     });
   };
 
+  // Función auxiliar para calcular la duración en minutos
+  const calculateDurationMinutes = (start_time: string, end_time: string) => {
+    const start = new Date(start_time);
+    const end = new Date(end_time);
+    return Math.round((end.getTime() - start.getTime()) / 60000);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       
@@ -250,9 +257,12 @@ export function ScheduleManager() {
           
           {[...Array(totalHours)].map((_, i) => {
             const currentHour = i + startHour;
+            // Definimos la altura de cada bloque de hora (ej: 100px)
+            const slotHeightPx = 100;
+            
             return (
-              <div key={i} className="grid grid-cols-8 border-b border-[#2a2a2a] min-h-[100px] last:border-b-0">
-                <div className="p-2 border-r border-[#2a2a2a] bg-[#121212]/50">
+              <div key={i} className="grid grid-cols-8 border-b border-[#2a2a2a] last:border-b-0" style={{ minHeight: `${slotHeightPx}px` }}>
+                <div className="p-2 border-r border-[#2a2a2a] bg-[#121212]/50 relative">
                   <span className="text-xs font-bold text-gray-500 bg-[#1a1a1a] px-2 py-1 rounded-md border border-[#2a2a2a]">
                     {currentHour.toString().padStart(2, '0')}:00
                   </span>
@@ -264,40 +274,53 @@ export function ScheduleManager() {
                   
                   return (
                     <div key={dayIndex} className={`border-r border-[#2a2a2a] last:border-r-0 hover:bg-[#E31C25]/5 transition-colors p-1 relative ${isToday ? 'bg-[#E31C25]/[0.02]' : ''}`}>
-                      {classesInSlot.map((cls) => (
-                        <div 
-                          key={cls.id} 
-                          onClick={() => setSelectedClass(cls)}
-                          className="bg-[#E31C25]/10 border border-[#E31C25]/30 rounded-lg p-2 group relative hover:bg-[#E31C25]/20 transition-all cursor-pointer mt-1 hover:scale-[1.02] shadow-sm"
-                          style={{ minHeight: '80px' }}
-                        >
-                          {/* BOTONES FLOTANTES DE EDICIÓN Y BORRADO */}
-                          <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 z-10 transition-all">
-                            <button 
-                              onClick={(e) => handleEditClick(cls, e)}
-                              className="p-1 bg-black/50 rounded text-blue-400 hover:text-blue-500 hover:bg-black transition-colors"
-                              title="Editar Clase"
-                            >
-                              <Edit2 size={12} />
-                            </button>
-                            <button 
-                              onClick={(e) => handleDeleteClass(cls.id, cls.title, e)}
-                              className="p-1 bg-black/50 rounded text-red-400 hover:text-red-500 hover:bg-black transition-colors"
-                              title="Cancelar Clase"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
+                      {classesInSlot.map((cls) => {
+                        // Magia Matemática: Calculamos la altura de la tarjeta en base a los minutos
+                        const durationMins = calculateDurationMinutes(cls.start_time, cls.end_time);
+                        // Multiplicamos (minutos / 60) por la altura base del slot para sacar la proporción
+                        const cardHeight = (durationMins / 60) * slotHeightPx;
+                        
+                        return (
+                          <div 
+                            key={cls.id} 
+                            onClick={() => setSelectedClass(cls)}
+                            // position absolute y z-10 para que invada el slot de abajo sin empujarlo
+                            className="absolute left-1 right-1 bg-[#E31C25]/10 border border-[#E31C25]/30 rounded-lg p-2 group hover:bg-[#E31C25]/20 transition-all cursor-pointer hover:scale-[1.02] shadow-sm z-10 overflow-hidden"
+                            style={{ 
+                              height: `calc(${cardHeight}px - 8px)`, // -8px para dejar un margen visual abajo
+                              top: '4px' // Margen superior
+                            }}
+                          >
+                            {/* BOTONES FLOTANTES DE EDICIÓN Y BORRADO */}
+                            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 z-20 transition-all">
+                              <button 
+                                onClick={(e) => handleEditClick(cls, e)}
+                                className="p-1 bg-black/50 rounded text-blue-400 hover:text-blue-500 hover:bg-black transition-colors"
+                                title="Editar Clase"
+                              >
+                                <Edit2 size={12} />
+                              </button>
+                              <button 
+                                onClick={(e) => handleDeleteClass(cls.id, cls.title, e)}
+                                className="p-1 bg-black/50 rounded text-red-400 hover:text-red-500 hover:bg-black transition-colors"
+                                title="Cancelar Clase"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
 
-                          <div className="text-[10px] font-bold text-[#E31C25] mb-1">
-                            {new Date(cls.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            <div className="text-[10px] font-bold text-[#E31C25] mb-1">
+                              {new Date(cls.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                              {' - '}
+                              {new Date(cls.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            </div>
+                            <div className="text-xs font-bold text-white leading-tight mb-1 truncate">{cls.title}</div>
+                            <div className="text-[10px] text-gray-400 truncate flex items-center gap-1">
+                              <Users size={10} className="shrink-0"/> {cls.trainer}
+                            </div>
                           </div>
-                          <div className="text-xs font-bold text-white leading-tight mb-1 truncate">{cls.title}</div>
-                          <div className="text-[10px] text-gray-400 truncate flex items-center gap-1">
-                            <Users size={10} className="shrink-0"/> {cls.trainer}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -351,7 +374,8 @@ export function ScheduleManager() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* NUEVA FILA CON LA UBICACIÓN */}
+              <div className="grid grid-cols-3 gap-4">
                  <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Capacidad</label>
                   <input type="number" required min="1" value={maxCapacity} onChange={e => setMaxCapacity(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" />
@@ -363,6 +387,11 @@ export function ScheduleManager() {
                     <option value="Media">Media</option>
                     <option value="Alta">Alta</option>
                   </select>
+                </div>
+                {/* CAMPO DE UBICACIÓN */}
+                <div>
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Ubicación</label>
+                  <input required value={location} onChange={e => setLocation(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none transition-colors" placeholder="Ej: Sala 1" />
                 </div>
               </div>
 
