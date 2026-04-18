@@ -3,13 +3,16 @@ import { Plus, X, Loader2, Trash2, MapPin, Users, Calendar, ChevronLeft, Chevron
 import { supabase } from './lib/supabase';
 import DetallesSesion from './DetallesSesion';
 
+// Definimos la altura de cada bloque de hora para usarla en los cálculos matemáticos
+const SLOT_HEIGHT_PX = 100;
+
 export function ScheduleManager() {
   // Estados Generales
   const [classes, setClasses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [weekOffset, setWeekOffset] = useState(0); 
 
-  // Estados del Modal de Formulario (Crear/Editar)
+  // Estados del Modal de Formulario
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -110,7 +113,7 @@ export function ScheduleManager() {
       const startDateTime = new Date(`${date}T${time}:00`);
       const endDateTime = new Date(startDateTime.getTime() + parseInt(duration) * 60000);
 
-      // --- VALIDACIÓN DE SOLAPAMIENTO (Crear/Editar) ---
+      // --- VALIDACIÓN DE SOLAPAMIENTO ---
       const hasOverlap = classes.some(cls => {
         if (editingClassId && cls.id === editingClassId) return false;
         const existingStart = new Date(cls.start_time);
@@ -164,7 +167,7 @@ export function ScheduleManager() {
     }
   };
 
-  // --- LÓGICA DE DRAG & DROP (Arrastrar y Soltar) ---
+  // --- LÓGICA MEJORADA DE DRAG & DROP (Con Precisión de Minutos) ---
   const handleDrop = async (e: React.DragEvent, dayIndex: number, hour: number) => {
     e.preventDefault();
     const draggedClassId = e.dataTransfer.getData("text/plain");
@@ -173,16 +176,23 @@ export function ScheduleManager() {
     const draggedClass = classes.find(c => c.id === draggedClassId);
     if (!draggedClass) return;
 
-    // 1. Calculamos la nueva fecha de inicio respetando los minutos originales
+    // Calculamos dónde se ha soltado el ratón exactamente
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetY = e.clientY - rect.top; // Posición Y del ratón relativa a la celda
+    
+    // Calculamos los minutos y los forzamos a redondear a tramos de 15 minutos
+    const rawMinutes = (offsetY / SLOT_HEIGHT_PX) * 60;
+    const snappedMinutes = Math.round(rawMinutes / 15) * 15;
+
     const originalStart = new Date(draggedClass.start_time);
     const originalEnd = new Date(draggedClass.end_time);
     const durationMs = originalEnd.getTime() - originalStart.getTime();
 
     const newStart = new Date(weekDates[dayIndex]);
-    newStart.setHours(hour, originalStart.getMinutes(), 0, 0);
+    newStart.setHours(hour, snappedMinutes, 0, 0); // Asignamos hora y minutos calculados
     const newEnd = new Date(newStart.getTime() + durationMs);
 
-    // 2. Validación de solapamiento silenciosa antes de mover
+    // Validación de solapamiento silenciosa
     const hasOverlap = classes.some(cls => {
       if (cls.id === draggedClassId) return false;
       const existingStart = new Date(cls.start_time);
@@ -195,7 +205,6 @@ export function ScheduleManager() {
       return;
     }
 
-    // 3. Si todo está libre, actualizamos la base de datos
     try {
       setLoading(true);
       const { error } = await supabase
@@ -207,7 +216,7 @@ export function ScheduleManager() {
         .eq('id', draggedClassId);
 
       if (error) throw error;
-      fetchClasses(); // Recarga las clases para mostrarlas en su nueva posición
+      fetchClasses(); 
     } catch (err: any) {
       alert("Error al mover la clase: " + err.message);
       setLoading(false);
@@ -300,10 +309,9 @@ export function ScheduleManager() {
           
           {[...Array(totalHours)].map((_, i) => {
             const currentHour = i + startHour;
-            const slotHeightPx = 100;
             
             return (
-              <div key={i} className="grid grid-cols-8 border-b border-[#2a2a2a] last:border-b-0" style={{ minHeight: `${slotHeightPx}px` }}>
+              <div key={i} className="grid grid-cols-8 border-b border-[#2a2a2a] last:border-b-0" style={{ minHeight: `${SLOT_HEIGHT_PX}px` }}>
                 <div className="p-2 border-r border-[#2a2a2a] bg-[#121212]/50 relative">
                   <span className="text-xs font-bold text-gray-500 bg-[#1a1a1a] px-2 py-1 rounded-md border border-[#2a2a2a]">
                     {currentHour.toString().padStart(2, '0')}:00
@@ -318,22 +326,23 @@ export function ScheduleManager() {
                     <div 
                       key={dayIndex} 
                       className={`border-r border-[#2a2a2a] last:border-r-0 hover:bg-[#E31C25]/5 transition-colors p-1 relative ${isToday ? 'bg-[#E31C25]/[0.02]' : ''}`}
-                      // EVENTOS DE LA ZONA DE ATERRIZAJE (DROP)
                       onDragOver={(e) => e.preventDefault()} 
                       onDrop={(e) => handleDrop(e, dayIndex, currentHour)}
                     >
                       {classesInSlot.map((cls) => {
                         const durationMins = calculateDurationMinutes(cls.start_time, cls.end_time);
-                        const cardHeight = (durationMins / 60) * slotHeightPx;
+                        const cardHeight = (durationMins / 60) * SLOT_HEIGHT_PX;
+                        
+                        // MAGIA AQUÍ: Calculamos cuánto margen superior debe tener si empieza más tarde de en punto
+                        const startMins = new Date(cls.start_time).getMinutes();
+                        const topOffset = (startMins / 60) * SLOT_HEIGHT_PX + 4; // +4px para que no roce la línea
                         
                         return (
                           <div 
                             key={cls.id} 
-                            // EVENTOS PARA HACER LA CLASE ARRASTRABLE
                             draggable={true}
                             onDragStart={(e) => {
                               e.dataTransfer.setData("text/plain", cls.id);
-                              // Opcional: Para que no se vea feo el arrastre, puedes cambiar la opacidad
                               setTimeout(() => (e.target as HTMLElement).style.opacity = "0.5", 0);
                             }}
                             onDragEnd={(e) => {
@@ -343,7 +352,7 @@ export function ScheduleManager() {
                             className="absolute left-1 right-1 bg-[#E31C25]/10 border border-[#E31C25]/30 rounded-lg p-2 group hover:bg-[#E31C25]/20 transition-all cursor-grab active:cursor-grabbing hover:scale-[1.02] shadow-sm z-10 overflow-hidden"
                             style={{ 
                               height: `calc(${cardHeight}px - 8px)`, 
-                              top: '4px' 
+                              top: `${topOffset}px` // Aquí aplicamos la altura proporcional
                             }}
                           >
                             <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 z-20 transition-all">
