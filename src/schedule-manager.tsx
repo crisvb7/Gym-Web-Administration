@@ -3,21 +3,17 @@ import { Plus, X, Loader2, Trash2, MapPin, Users, Calendar, ChevronLeft, Chevron
 import { supabase } from './lib/supabase';
 import DetallesSesion from './DetallesSesion';
 
-// Definimos la altura de cada bloque de hora para usarla en los cálculos matemáticos
 const SLOT_HEIGHT_PX = 100;
 
 export function ScheduleManager() {
-  // Estados Generales
   const [classes, setClasses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [weekOffset, setWeekOffset] = useState(0); 
 
-  // Estados del Modal de Formulario
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Campos del formulario
   const [title, setTitle] = useState('');
   const [trainer, setTrainer] = useState('');
   const [date, setDate] = useState('');
@@ -27,7 +23,6 @@ export function ScheduleManager() {
   const [location, setLocation] = useState('Zona Principal');
   const [intensityBadge, setIntensityBadge] = useState('Media');
 
-  // Estado para ver los detalles
   const [selectedClass, setSelectedClass] = useState<any>(null);
 
   const weekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -113,7 +108,6 @@ export function ScheduleManager() {
       const startDateTime = new Date(`${date}T${time}:00`);
       const endDateTime = new Date(startDateTime.getTime() + parseInt(duration) * 60000);
 
-      // --- VALIDACIÓN DE SOLAPAMIENTO ---
       const hasOverlap = classes.some(cls => {
         if (editingClassId && cls.id === editingClassId) return false;
         const existingStart = new Date(cls.start_time);
@@ -167,32 +161,47 @@ export function ScheduleManager() {
     }
   };
 
-  // --- LÓGICA MEJORADA DE DRAG & DROP (Con Precisión de Minutos) ---
+  // --- LÓGICA CORREGIDA DE DRAG & DROP ---
   const handleDrop = async (e: React.DragEvent, dayIndex: number, hour: number) => {
     e.preventDefault();
-    const draggedClassId = e.dataTransfer.getData("text/plain");
-    if (!draggedClassId) return;
+    
+    // Recuperamos los datos que guardamos al hacer clic (ID de la clase y el offset del ratón)
+    const payloadStr = e.dataTransfer.getData("text/plain");
+    if (!payloadStr) return;
+
+    let payload;
+    try {
+      payload = JSON.parse(payloadStr);
+    } catch (err) {
+      return; // Previene errores si se arrastra texto normal de la web por error
+    }
+
+    const { id: draggedClassId, grabOffsetY } = payload;
 
     const draggedClass = classes.find(c => c.id === draggedClassId);
     if (!draggedClass) return;
 
-    // Calculamos dónde se ha soltado el ratón exactamente
     const rect = e.currentTarget.getBoundingClientRect();
-    const offsetY = e.clientY - rect.top; // Posición Y del ratón relativa a la celda
     
-    // Calculamos los minutos y los forzamos a redondear a tramos de 15 minutos
-    const rawMinutes = (offsetY / SLOT_HEIGHT_PX) * 60;
+    // 1. ¿A qué altura está el ratón respecto a la celda?
+    const mouseOffsetY = e.clientY - rect.top; 
+    
+    // 2. MAGIA: Restamos la distancia a la que agarramos la tarjeta para saber dónde está el borde superior real
+    const trueCardTopY = mouseOffsetY - grabOffsetY;
+    
+    // 3. Calculamos los minutos basándonos en el borde de la tarjeta, no en el ratón
+    const rawMinutes = (trueCardTopY / SLOT_HEIGHT_PX) * 60;
     const snappedMinutes = Math.round(rawMinutes / 15) * 15;
 
     const originalStart = new Date(draggedClass.start_time);
     const originalEnd = new Date(draggedClass.end_time);
     const durationMs = originalEnd.getTime() - originalStart.getTime();
 
+    // JavaScript es mágico: si snappedMinutes es -15, restará automáticamente 15 mins a la hora en punto
     const newStart = new Date(weekDates[dayIndex]);
-    newStart.setHours(hour, snappedMinutes, 0, 0); // Asignamos hora y minutos calculados
+    newStart.setHours(hour, snappedMinutes, 0, 0); 
     const newEnd = new Date(newStart.getTime() + durationMs);
 
-    // Validación de solapamiento silenciosa
     const hasOverlap = classes.some(cls => {
       if (cls.id === draggedClassId) return false;
       const existingStart = new Date(cls.start_time);
@@ -333,16 +342,22 @@ export function ScheduleManager() {
                         const durationMins = calculateDurationMinutes(cls.start_time, cls.end_time);
                         const cardHeight = (durationMins / 60) * SLOT_HEIGHT_PX;
                         
-                        // MAGIA AQUÍ: Calculamos cuánto margen superior debe tener si empieza más tarde de en punto
                         const startMins = new Date(cls.start_time).getMinutes();
-                        const topOffset = (startMins / 60) * SLOT_HEIGHT_PX + 4; // +4px para que no roce la línea
+                        const topOffset = (startMins / 60) * SLOT_HEIGHT_PX + 4; 
                         
                         return (
                           <div 
                             key={cls.id} 
                             draggable={true}
                             onDragStart={(e) => {
-                              e.dataTransfer.setData("text/plain", cls.id);
+                              // CAPTURAMOS LA POSICIÓN EXACTA DEL CLIC DENTRO DE LA TARJETA
+                              const rect = (e.target as HTMLElement).getBoundingClientRect();
+                              const grabOffsetY = e.clientY - rect.top; 
+                              
+                              // Guardamos el ID y el offset en un JSON
+                              const payload = JSON.stringify({ id: cls.id, grabOffsetY });
+                              e.dataTransfer.setData("text/plain", payload);
+                              
                               setTimeout(() => (e.target as HTMLElement).style.opacity = "0.5", 0);
                             }}
                             onDragEnd={(e) => {
@@ -352,7 +367,7 @@ export function ScheduleManager() {
                             className="absolute left-1 right-1 bg-[#E31C25]/10 border border-[#E31C25]/30 rounded-lg p-2 group hover:bg-[#E31C25]/20 transition-all cursor-grab active:cursor-grabbing hover:scale-[1.02] shadow-sm z-10 overflow-hidden"
                             style={{ 
                               height: `calc(${cardHeight}px - 8px)`, 
-                              top: `${topOffset}px` // Aquí aplicamos la altura proporcional
+                              top: `${topOffset}px` 
                             }}
                           >
                             <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 z-20 transition-all">
