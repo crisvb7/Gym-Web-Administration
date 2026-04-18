@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Plus, X, Loader2, Trash2, MapPin, Users, Calendar, ChevronLeft, ChevronRight, Edit2 } from "lucide-react";
 import { supabase } from './lib/supabase';
-// 1. Importamos el nuevo componente
 import DetallesSesion from './DetallesSesion';
 
 export function ScheduleManager() {
@@ -12,7 +11,7 @@ export function ScheduleManager() {
 
   // Estados del Modal de Formulario (Crear/Editar)
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
-  const [editingClassId, setEditingClassId] = useState<string | null>(null); // NUEVO: Para saber si editamos
+  const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Campos del formulario
@@ -76,7 +75,6 @@ export function ScheduleManager() {
     fetchClasses();
   }, [weekOffset]);
 
-  // Función auxiliar para cerrar y limpiar el formulario
   const closeAndResetForm = () => {
     setIsFormModalOpen(false);
     setEditingClassId(null);
@@ -84,20 +82,16 @@ export function ScheduleManager() {
     setDuration('60'); setMaxCapacity('20'); setLocation('Zona Principal'); setIntensityBadge('Media');
   };
 
-  // NUEVO: Función para abrir el modal pre-rellenado con los datos de la clase
   const handleEditClick = (cls: any, e: React.MouseEvent) => {
-    e.stopPropagation(); // Para que no se abra la vista de detalles de fondo
+    e.stopPropagation(); 
     
     const startDate = new Date(cls.start_time);
     const endDate = new Date(cls.end_time);
-    
-    // Calculamos la duración real en minutos
     const durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
 
     setTitle(cls.title);
     setTrainer(cls.trainer);
     setDate(getLocalDateString(startDate));
-    // Formateamos la hora asegurando que tenga 2 dígitos (ej: 09:30)
     setTime(startDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false }));
     setDuration(durationMinutes.toString());
     setMaxCapacity(cls.max_capacity.toString());
@@ -108,7 +102,6 @@ export function ScheduleManager() {
     setIsFormModalOpen(true);
   };
 
-  // ACTUALIZADO: Ahora incluye validación para evitar solapamientos
   const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -117,25 +110,19 @@ export function ScheduleManager() {
       const startDateTime = new Date(`${date}T${time}:00`);
       const endDateTime = new Date(startDateTime.getTime() + parseInt(duration) * 60000);
 
-      // --- VALIDACIÓN DE SOLAPAMIENTO ---
-      // Buscamos si existe alguna clase que choque con el nuevo horario
+      // --- VALIDACIÓN DE SOLAPAMIENTO (Crear/Editar) ---
       const hasOverlap = classes.some(cls => {
-        // Si estamos editando, ignoramos la clase actual para que no choque consigo misma
         if (editingClassId && cls.id === editingClassId) return false;
-
         const existingStart = new Date(cls.start_time);
         const existingEnd = new Date(cls.end_time);
-
-        // Lógica: (InicioA < FinB) && (FinA > InicioB)
         return startDateTime < existingEnd && endDateTime > existingStart;
       });
 
       if (hasOverlap) {
-        alert("⚠️ No se puede crear la clase: Ya existe otra actividad programada en este horario.");
+        alert("⚠️ No se puede guardar: Ya existe otra actividad programada en este horario.");
         setIsSubmitting(false);
-        return; // Detenemos la ejecución
+        return; 
       }
-      // ----------------------------------
 
       const classData = {
         title, trainer,
@@ -146,20 +133,10 @@ export function ScheduleManager() {
       };
 
       if (editingClassId) {
-        // MODO EDICIÓN
-        const { data, error } = await supabase
-          .from('classes')
-          .update(classData)
-          .eq('id', editingClassId)
-          .select();
-
+        const { data, error } = await supabase.from('classes').update(classData).eq('id', editingClassId).select();
         if (error) throw error;
-        
-        if (!data || data.length === 0) {
-          throw new Error("Supabase ha bloqueado la edición por falta de permisos RLS.");
-        }
+        if (!data || data.length === 0) throw new Error("Supabase bloqueó la edición por permisos.");
       } else {
-        // MODO CREACIÓN
         const { error } = await supabase.from('classes').insert([classData]);
         if (error) throw error;
       }
@@ -187,6 +164,56 @@ export function ScheduleManager() {
     }
   };
 
+  // --- LÓGICA DE DRAG & DROP (Arrastrar y Soltar) ---
+  const handleDrop = async (e: React.DragEvent, dayIndex: number, hour: number) => {
+    e.preventDefault();
+    const draggedClassId = e.dataTransfer.getData("text/plain");
+    if (!draggedClassId) return;
+
+    const draggedClass = classes.find(c => c.id === draggedClassId);
+    if (!draggedClass) return;
+
+    // 1. Calculamos la nueva fecha de inicio respetando los minutos originales
+    const originalStart = new Date(draggedClass.start_time);
+    const originalEnd = new Date(draggedClass.end_time);
+    const durationMs = originalEnd.getTime() - originalStart.getTime();
+
+    const newStart = new Date(weekDates[dayIndex]);
+    newStart.setHours(hour, originalStart.getMinutes(), 0, 0);
+    const newEnd = new Date(newStart.getTime() + durationMs);
+
+    // 2. Validación de solapamiento silenciosa antes de mover
+    const hasOverlap = classes.some(cls => {
+      if (cls.id === draggedClassId) return false;
+      const existingStart = new Date(cls.start_time);
+      const existingEnd = new Date(cls.end_time);
+      return newStart < existingEnd && newEnd > existingStart;
+    });
+
+    if (hasOverlap) {
+      alert("⚠️ No puedes mover la clase aquí: Ya hay otra actividad programada.");
+      return;
+    }
+
+    // 3. Si todo está libre, actualizamos la base de datos
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('classes')
+        .update({
+          start_time: newStart.toISOString(),
+          end_time: newEnd.toISOString()
+        })
+        .eq('id', draggedClassId);
+
+      if (error) throw error;
+      fetchClasses(); // Recarga las clases para mostrarlas en su nueva posición
+    } catch (err: any) {
+      alert("Error al mover la clase: " + err.message);
+      setLoading(false);
+    }
+  };
+
   const getLocalDateString = (date: Date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -204,7 +231,6 @@ export function ScheduleManager() {
     });
   };
 
-  // Función auxiliar para calcular la duración en minutos
   const calculateDurationMinutes = (start_time: string, end_time: string) => {
     const start = new Date(start_time);
     const end = new Date(end_time);
@@ -214,7 +240,6 @@ export function ScheduleManager() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       
-      {/* Cabecera y Navegación de Semanas */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Calendario Semanal</h1>
@@ -250,7 +275,6 @@ export function ScheduleManager() {
         </button>
       </div>
 
-      {/* Cuadrícula del Calendario */}
       <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl overflow-hidden shadow-xl">
         <div className="grid grid-cols-8 border-b border-[#2a2a2a] bg-[#121212]">
           <div className="p-4 border-r border-[#2a2a2a] text-xs text-gray-500 flex items-center justify-center font-bold tracking-wider uppercase">Hora</div>
@@ -276,7 +300,6 @@ export function ScheduleManager() {
           
           {[...Array(totalHours)].map((_, i) => {
             const currentHour = i + startHour;
-            // Definimos la altura de cada bloque de hora (ej: 100px)
             const slotHeightPx = 100;
             
             return (
@@ -292,25 +315,37 @@ export function ScheduleManager() {
                   const isToday = getLocalDateString(new Date()) === getLocalDateString(weekDates[dayIndex]);
                   
                   return (
-                    <div key={dayIndex} className={`border-r border-[#2a2a2a] last:border-r-0 hover:bg-[#E31C25]/5 transition-colors p-1 relative ${isToday ? 'bg-[#E31C25]/[0.02]' : ''}`}>
+                    <div 
+                      key={dayIndex} 
+                      className={`border-r border-[#2a2a2a] last:border-r-0 hover:bg-[#E31C25]/5 transition-colors p-1 relative ${isToday ? 'bg-[#E31C25]/[0.02]' : ''}`}
+                      // EVENTOS DE LA ZONA DE ATERRIZAJE (DROP)
+                      onDragOver={(e) => e.preventDefault()} 
+                      onDrop={(e) => handleDrop(e, dayIndex, currentHour)}
+                    >
                       {classesInSlot.map((cls) => {
-                        // Magia Matemática: Calculamos la altura de la tarjeta en base a los minutos
                         const durationMins = calculateDurationMinutes(cls.start_time, cls.end_time);
-                        // Multiplicamos (minutos / 60) por la altura base del slot para sacar la proporción
                         const cardHeight = (durationMins / 60) * slotHeightPx;
                         
                         return (
                           <div 
                             key={cls.id} 
+                            // EVENTOS PARA HACER LA CLASE ARRASTRABLE
+                            draggable={true}
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", cls.id);
+                              // Opcional: Para que no se vea feo el arrastre, puedes cambiar la opacidad
+                              setTimeout(() => (e.target as HTMLElement).style.opacity = "0.5", 0);
+                            }}
+                            onDragEnd={(e) => {
+                              (e.target as HTMLElement).style.opacity = "1";
+                            }}
                             onClick={() => setSelectedClass(cls)}
-                            // position absolute y z-10 para que invada el slot de abajo sin empujarlo
-                            className="absolute left-1 right-1 bg-[#E31C25]/10 border border-[#E31C25]/30 rounded-lg p-2 group hover:bg-[#E31C25]/20 transition-all cursor-pointer hover:scale-[1.02] shadow-sm z-10 overflow-hidden"
+                            className="absolute left-1 right-1 bg-[#E31C25]/10 border border-[#E31C25]/30 rounded-lg p-2 group hover:bg-[#E31C25]/20 transition-all cursor-grab active:cursor-grabbing hover:scale-[1.02] shadow-sm z-10 overflow-hidden"
                             style={{ 
-                              height: `calc(${cardHeight}px - 8px)`, // -8px para dejar un margen visual abajo
-                              top: '4px' // Margen superior
+                              height: `calc(${cardHeight}px - 8px)`, 
+                              top: '4px' 
                             }}
                           >
-                            {/* BOTONES FLOTANTES DE EDICIÓN Y BORRADO */}
                             <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 z-20 transition-all">
                               <button 
                                 onClick={(e) => handleEditClick(cls, e)}
@@ -328,13 +363,13 @@ export function ScheduleManager() {
                               </button>
                             </div>
 
-                            <div className="text-[10px] font-bold text-[#E31C25] mb-1">
+                            <div className="text-[10px] font-bold text-[#E31C25] mb-1 pointer-events-none">
                               {new Date(cls.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                               {' - '}
                               {new Date(cls.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                             </div>
-                            <div className="text-xs font-bold text-white leading-tight mb-1 truncate">{cls.title}</div>
-                            <div className="text-[10px] text-gray-400 truncate flex items-center gap-1">
+                            <div className="text-xs font-bold text-white leading-tight mb-1 truncate pointer-events-none">{cls.title}</div>
+                            <div className="text-[10px] text-gray-400 truncate flex items-center gap-1 pointer-events-none">
                               <Users size={10} className="shrink-0"/> {cls.trainer}
                             </div>
                           </div>
@@ -349,9 +384,8 @@ export function ScheduleManager() {
         </div>
       </div>
 
-      {/* Modal 1: Formulario (Creación y Edición) */}
       {isFormModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-xl rounded-3xl p-8 relative shadow-2xl animate-in zoom-in-95 duration-200">
             <button onClick={closeAndResetForm} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors">
               <X size={24} />
@@ -393,7 +427,6 @@ export function ScheduleManager() {
                 </div>
               </div>
 
-              {/* NUEVA FILA CON LA UBICACIÓN */}
               <div className="grid grid-cols-3 gap-4">
                  <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Capacidad</label>
@@ -407,14 +440,13 @@ export function ScheduleManager() {
                     <option value="Alta">Alta</option>
                   </select>
                 </div>
-                {/* CAMPO DE UBICACIÓN */}
                 <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Ubicación</label>
                   <input required value={location} onChange={e => setLocation(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none transition-colors" placeholder="Ej: Sala 1" />
                 </div>
               </div>
 
-              <button disabled={isSubmitting} className="w-full bg-[#E31C25] text-white font-bold py-4 rounded-xl mt-6 hover:bg-[#A6151B] transition-colors flex items-center justify-center gap-2">
+              <button disabled={isSubmitting} className="w-full bg-[#E31C25] text-white font-bold py-4 rounded-xl mt-6 hover:bg-[#A6151B] transition-colors flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(227,28,37,0.3)]">
                 {isSubmitting ? <Loader2 className="animate-spin w-5 h-5" /> : (editingClassId ? 'Guardar Cambios' : 'Guardar en Calendario')}
               </button>
             </form>
@@ -422,7 +454,6 @@ export function ScheduleManager() {
         </div>
       )}
 
-      {/* Modal 2: Detalles de la sesión */}
       <DetallesSesion 
         sesion={selectedClass} 
         onClose={() => setSelectedClass(null)} 
