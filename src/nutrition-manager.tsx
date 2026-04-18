@@ -319,7 +319,7 @@ export function NutritionManager() {
                 <textarea className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none min-h-[120px]" value={newRecipe.instructions} onChange={e => setNewRecipe({...newRecipe, instructions: e.target.value})} placeholder="1. Mezcla la avena...&#10;2. Calienta en el microondas..." />
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Momento ideal</label>
                   <select className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none appearance-none" value={newRecipe.category} onChange={e => setNewRecipe({...newRecipe, category: e.target.value})}>
