@@ -4,7 +4,8 @@ import {
   Users, 
   Calendar, 
   Apple, 
-  Dumbbell, 
+  Dumbbell,
+  DollarSign, // <-- Añadido el icono para la facturación
   // Settings,
   LogOut,
   Loader2,
@@ -25,6 +26,7 @@ import { NutritionForm } from "./components/nutrition-form";
 // Importamos las pantallas de seguridad
 import { SetPasswordPage } from "./SetPassword";
 import { LoginPage } from "./login";
+import { BillingManager } from './billing-manager';
 
 export default function App() {
   // --- ESTADO PARA EL MENÚ EN MÓVIL ---
@@ -114,6 +116,7 @@ export default function App() {
       case 'schedule': return <ScheduleManager />;
       case 'nutrition': return <NutritionManager />;
       case 'workouts': return <WorkoutsPage />;
+      case 'billing': return <BillingManager />; // <-- Añadida la renderización de Facturación
       default: return <DashboardOverview />;
     }
   };
@@ -124,6 +127,7 @@ export default function App() {
     { id: 'schedule', label: 'Horarios', icon: Calendar },
     { id: 'nutrition', label: 'Nutrición', icon: Apple },
     { id: 'workouts', label: 'Entrenamientos', icon: Dumbbell },
+    { id: 'billing', label: 'Facturación', icon: DollarSign }, // <-- Añadido el botón al menú
   ];
 
   // ==========================================
