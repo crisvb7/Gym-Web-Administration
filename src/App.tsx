@@ -32,13 +32,13 @@ export default function App() {
   // --- ESTADO PARA EL MENÚ EN MÓVIL ---
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // 1. DETECTAMOS LA INVITACIÓN SÍNCRONAMENTE
-  const initialHash = typeof window !== 'undefined' ? window.location.hash : '';
+  // 1. DETECTAMOS LA INVITACIÓN SÍNCRONAMENTE (Solución de los 10 segundos)
+  const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
   const [isInviteFlow, setIsInviteFlow] = useState(
-    initialHash.includes('type=invite') || initialHash.includes('type=recovery')
+    currentUrl.includes('type=invite') || currentUrl.includes('type=recovery')
   );
   const [linkExpired, setLinkExpired] = useState(
-    initialHash.includes('error=')
+    currentUrl.includes('error=')
   );
 
   // Estados de tu panel
@@ -116,7 +116,7 @@ export default function App() {
       case 'schedule': return <ScheduleManager />;
       case 'nutrition': return <NutritionManager />;
       case 'workouts': return <WorkoutsPage />;
-      case 'billing': return <BillingManager />; // <-- Añadida la renderización de Facturación
+      case 'billing': return <BillingManager />; 
       default: return <DashboardOverview />;
     }
   };
@@ -127,7 +127,7 @@ export default function App() {
     { id: 'schedule', label: 'Horarios', icon: Calendar },
     { id: 'nutrition', label: 'Nutrición', icon: Apple },
     { id: 'workouts', label: 'Entrenamientos', icon: Dumbbell },
-    { id: 'billing', label: 'Facturación', icon: DollarSign }, // <-- Añadido el botón al menú
+    { id: 'billing', label: 'Facturación', icon: DollarSign }, 
   ];
 
   // ==========================================
