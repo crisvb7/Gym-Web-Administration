@@ -165,10 +165,20 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
     if (!editAtleta.email) return alert("Este usuario no tiene un correo registrado.");
     
     setIsResetting(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(editAtleta.email);
-    if (error) alert("Error al enviar el correo: " + error.message);
-    else alert(`¡Correo de recuperación enviado a ${editAtleta.email}!`);
-    setIsResetting(false);
+    try {
+      // Le forzamos a Supabase la ruta exacta a la que debe volver el usuario
+      const { error } = await supabase.auth.resetPasswordForEmail(editAtleta.email, {
+        redirectTo: window.location.origin, 
+      });
+
+      if (error) throw error;
+      
+      alert(`¡Petición enviada a ${editAtleta.email}!\n\nNota: Si no le llega en 1 minuto, revisad Spam. Si es un usuario nuevo que nunca llegó a entrar, bórralo y envíale una nueva invitación.`);
+    } catch (err: any) {
+      alert("Error al enviar el correo: " + err.message);
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   // --- BORRAR MIEMBRO ---
