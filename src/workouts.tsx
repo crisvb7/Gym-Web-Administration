@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, Play, UserPlus, Calendar, Square, Layers, CheckSquare } from "lucide-react";
+import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, Play, UserPlus, Calendar, Layers, CheckCircle2, Circle } from "lucide-react";
 import { supabase } from "./lib/supabase"; 
 
 interface Exercise {
@@ -21,12 +21,14 @@ export function WorkoutsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
   
+  // Estados para Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [previewExercise, setPreviewExercise] = useState<Exercise | null>(null);
   
-  // SELECCIÓN MÚLTIPLE PARA SUPERSERIES
+  // --- MODO SUPERSERIE (Estilo iPhone) ---
+  const [isSupersetMode, setIsSupersetMode] = useState(false);
   const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([]);
   
   // Modal de Asignación 
@@ -89,13 +91,18 @@ export function WorkoutsPage() {
     setIsModalOpen(true);
   };
 
-  // --- LÓGICA DE SUPERSERIES ---
+  // --- LÓGICA DE SELECCIÓN ---
   const toggleSelection = (ex: Exercise) => {
     if (selectedExercises.find(e => e.id === ex.id)) {
       setSelectedExercises(selectedExercises.filter(e => e.id !== ex.id));
     } else {
       setSelectedExercises([...selectedExercises, ex]);
     }
+  };
+
+  const handleToggleSupersetMode = () => {
+    setIsSupersetMode(!isSupersetMode);
+    setSelectedExercises([]); // Limpiamos la selección si apagamos o encendemos el modo
   };
 
   const handleOpenAssign = (exercisesToAssign: Exercise[]) => {
@@ -129,11 +136,9 @@ export function WorkoutsPage() {
     setIsSubmitting(true);
     try {
       if (editingId) {
-        const { error } = await supabase.from('exercises').update(formData).eq('id', editingId);
-        if (error) throw error;
+        await supabase.from('exercises').update(formData).eq('id', editingId);
       } else {
-        const { error } = await supabase.from('exercises').insert([formData]);
-        if (error) throw error;
+        await supabase.from('exercises').insert([formData]);
       }
       setIsModalOpen(false);
       fetchExercises(); 
@@ -170,6 +175,7 @@ export function WorkoutsPage() {
       
       setIsAssignModalOpen(false);
       setSelectedExercises([]);
+      setIsSupersetMode(false); // Salimos del modo superserie al terminar
       alert(isSuperset ? "¡Superserie asignada con éxito!" : "¡Ejercicio asignado correctamente!");
     } catch (error: any) {
       alert("Error al asignar. Verifica que has añadido las columnas 'superset_id' y 'order_index' en Supabase.");
@@ -183,7 +189,6 @@ export function WorkoutsPage() {
       try {
         await supabase.from('exercises').delete().eq('id', id);
         setExercises(exercises.filter(ex => ex.id !== id));
-        setSelectedExercises(selectedExercises.filter(ex => ex.id !== id));
       } catch (error) {
         console.error("Error eliminando:", error);
       }
@@ -201,7 +206,7 @@ export function WorkoutsPage() {
   );
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 relative pb-24">
+    <div className={`space-y-6 animate-in fade-in duration-500 relative pb-24 ${isSupersetMode ? 'select-none' : ''}`}>
       
       {/* Cabecera */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -209,13 +214,28 @@ export function WorkoutsPage() {
           <h1 className="text-3xl font-bold text-white tracking-tight">Biblioteca de Ejercicios</h1>
           <p className="text-gray-400 mt-1">Gestiona el catálogo y crea rutinas para tus atletas.</p>
         </div>
-        <button onClick={handleOpenCreate} className="bg-[#E31C25] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#A6151B] transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(227,28,37,0.3)] shrink-0">
-          <Plus size={20} /> Añadir Ejercicio
-        </button>
+        <div className="flex gap-3 shrink-0">
+          <button 
+            onClick={handleToggleSupersetMode} 
+            className={`px-5 py-3 rounded-xl font-bold transition-all flex items-center gap-2 border ${
+              isSupersetMode 
+                ? 'bg-[#1a1a1a] text-white border-[#E31C25] shadow-[0_0_15px_rgba(227,28,37,0.3)]' 
+                : 'bg-[#121212] text-[#E31C25] border-[#E31C25]/30 hover:bg-[#E31C25]/10'
+            }`}
+          >
+            <Layers size={20} /> {isSupersetMode ? "Cancelar Superserie" : "Modo Superserie"}
+          </button>
+          
+          {!isSupersetMode && (
+            <button onClick={handleOpenCreate} className="bg-[#E31C25] text-white px-5 py-3 rounded-xl font-bold hover:bg-[#A6151B] transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(227,28,37,0.3)]">
+              <Plus size={20} /> Añadir Ejercicio
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Barra de Búsqueda */}
-      <div className="bg-[#121212] border border-[#2a2a2a] p-4 rounded-2xl flex items-center gap-3">
+      <div className={`bg-[#121212] border p-4 rounded-2xl flex items-center gap-3 transition-colors ${isSupersetMode ? 'border-[#E31C25]/50 shadow-[0_0_10px_rgba(227,28,37,0.1)]' : 'border-[#2a2a2a]'}`}>
         <Search className="text-gray-500 w-5 h-5" />
         <input type="text" placeholder="Buscar ejercicio por nombre..." className="bg-transparent border-none text-white outline-none w-full placeholder:text-gray-600" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
       </div>
@@ -244,49 +264,58 @@ export function WorkoutsPage() {
             const selectionIndex = selectedExercises.findIndex(e => e.id === ex.id) + 1;
 
             return (
-              <div key={ex.id} className={`bg-[#1a1a1a] border rounded-2xl overflow-hidden transition-all group ${isSelected ? 'border-[#E31C25] shadow-[0_0_15px_rgba(227,28,37,0.2)]' : 'border-[#2a2a2a] hover:border-[#E31C25]/50'}`}>
+              <div 
+                key={ex.id} 
+                onClick={() => {
+                  // Si estamos en modo superserie, hacer clic en la tarjeta la selecciona
+                  if (isSupersetMode) {
+                    toggleSelection(ex);
+                  }
+                }}
+                className={`bg-[#1a1a1a] border rounded-2xl overflow-hidden transition-all group ${
+                  isSupersetMode ? 'cursor-pointer transform hover:scale-[1.02]' : ''
+                } ${
+                  isSelected 
+                    ? 'border-[#E31C25] ring-2 ring-[#E31C25] shadow-[0_0_20px_rgba(227,28,37,0.2)]' 
+                    : isSupersetMode 
+                      ? 'border-[#2a2a2a] hover:border-gray-500 opacity-70 hover:opacity-100' 
+                      : 'border-[#2a2a2a] hover:border-[#E31C25]/50'
+                }`}
+              >
                 
                 {/* Tarjeta de Imagen */}
                 <div 
-                  className={`h-48 bg-[#121212] relative overflow-hidden group ${ex.video_url ? 'cursor-pointer' : ''}`}
-                  onClick={() => ex.video_url && setPreviewExercise(ex)} 
+                  className={`h-48 bg-[#121212] relative overflow-hidden ${!isSupersetMode && ex.video_url ? 'cursor-pointer' : ''}`}
+                  onClick={() => {
+                    // Si NO estamos en modo superserie y hay vídeo, lo abrimos
+                    if (!isSupersetMode && ex.video_url) setPreviewExercise(ex);
+                  }}
                 >
                   
-                  {/* --- BOTÓN DE SELECCIÓN CORREGIDO --- */}
-                  <div className="absolute top-3 left-3 z-30 flex items-center justify-center">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation(); // <-- ESTO BLOQUEA QUE SE ABRA EL VÍDEO
-                        toggleSelection(ex);
-                      }}
-                      className={`p-2 rounded-lg flex items-center justify-center backdrop-blur-md transition-colors shadow-lg ${
-                        isSelected 
-                          ? 'bg-[#E31C25] text-white border border-[#E31C25]' 
-                          : 'bg-black/60 text-gray-400 border border-white/20 hover:text-white hover:bg-black/80'
-                      }`}
-                      title="Seleccionar para Superserie"
-                    >
-                      {isSelected ? (
-                        <span className="font-black text-sm w-5 h-5 flex items-center justify-center">{selectionIndex}</span>
-                      ) : (
-                        <Square size={20} />
-                      )}
-                    </button>
-                  </div>
+                  {/* Indicador visual de selección en Modo Superserie */}
+                  {isSupersetMode && (
+                    <div className="absolute top-3 left-3 z-30 flex items-center justify-center">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-lg ${
+                        isSelected ? 'bg-[#E31C25] text-white scale-110' : 'bg-black/60 text-gray-400 border border-white/20'
+                      }`}>
+                        {isSelected ? <span className="font-black text-sm">{selectionIndex}</span> : <Circle size={20} />}
+                      </div>
+                    </div>
+                  )}
 
                   {ex.thumbnail_url ? (
-                    <img src={ex.thumbnail_url} alt={ex.name} className={`w-full h-full object-cover transition-transform duration-500 ${isSelected ? 'opacity-50' : 'opacity-80 group-hover:scale-105'}`} />
+                    <img src={ex.thumbnail_url} alt={ex.name} className={`w-full h-full object-cover transition-transform duration-500 ${isSelected ? 'opacity-40' : 'opacity-80 group-hover:scale-105'}`} />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center"><Dumbbell className="w-12 h-12 text-gray-700" /></div>
                   )}
                   
-                  {ex.video_url && (
+                  {!isSupersetMode && ex.video_url && (
                     <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm p-2 rounded-lg text-white group-hover:text-[#E31C25] transition-colors z-20 pointer-events-none">
                       <Video size={16} />
                     </div>
                   )}
 
-                  <div className="absolute bottom-3 left-3 bg-[#E31C25] text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-lg">
+                  <div className={`absolute bottom-3 left-3 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-lg ${isSelected ? 'bg-[#A6151B]' : 'bg-[#E31C25]'}`}>
                     {ex.category}
                   </div>
                 </div>
@@ -295,17 +324,21 @@ export function WorkoutsPage() {
                 <div className="p-5">
                   <div className="flex justify-between items-start mb-2">
                     <h3 className="text-lg font-bold text-white truncate pr-2">{ex.name}</h3>
-                    <div className="flex gap-2 shrink-0">
-                      <button onClick={(e) => { e.stopPropagation(); handleOpenAssign([ex]); }} title="Asignar a atleta" className="text-gray-500 hover:text-white transition-colors bg-[#121212] p-1.5 rounded-md border border-[#2a2a2a]">
-                        <UserPlus size={16} />
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(ex); }} title="Editar" className="text-gray-500 hover:text-blue-500 transition-colors bg-[#121212] p-1.5 rounded-md border border-[#2a2a2a]">
-                        <Edit size={16} />
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDelete(ex.id, ex.name); }} title="Eliminar" className="text-gray-500 hover:text-[#E31C25] transition-colors bg-[#121212] p-1.5 rounded-md border border-[#2a2a2a]">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                    
+                    {/* Botones de acción (ocultos en Modo Superserie para no molestar) */}
+                    {!isSupersetMode && (
+                      <div className="flex gap-2 shrink-0">
+                        <button onClick={(e) => { e.stopPropagation(); handleOpenAssign([ex]); }} title="Asignar a atleta" className="text-gray-500 hover:text-white transition-colors bg-[#121212] p-1.5 rounded-md border border-[#2a2a2a]">
+                          <UserPlus size={16} />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(ex); }} title="Editar" className="text-gray-500 hover:text-blue-500 transition-colors bg-[#121212] p-1.5 rounded-md border border-[#2a2a2a]">
+                          <Edit size={16} />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDelete(ex.id, ex.name); }} title="Eliminar" className="text-gray-500 hover:text-[#E31C25] transition-colors bg-[#121212] p-1.5 rounded-md border border-[#2a2a2a]">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <p className="text-sm text-gray-400 line-clamp-2 mb-4 h-10">{ex.description || "Sin descripción detallada."}</p>
                 </div>
@@ -316,25 +349,40 @@ export function WorkoutsPage() {
       )}
 
       {/* BARRA FLOTANTE DE SUPERSERIES */}
-      {selectedExercises.length > 1 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#121212] border-2 border-[#E31C25] p-4 rounded-2xl shadow-[0_10px_40px_rgba(227,28,37,0.3)] z-40 flex items-center gap-6 animate-in slide-in-from-bottom-10">
+      {isSupersetMode && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#121212] border-2 border-[#E31C25] p-4 rounded-2xl shadow-[0_10px_40px_rgba(227,28,37,0.5)] z-40 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 animate-in slide-in-from-bottom-10">
           <div className="flex items-center gap-3">
             <div className="bg-[#E31C25]/20 p-2 rounded-lg text-[#E31C25]"><Layers size={24} /></div>
             <div>
               <p className="text-white font-bold">{selectedExercises.length} Ejercicios seleccionados</p>
-              <p className="text-xs text-[#E31C25]">Modo Superserie activado</p>
+              <p className="text-xs text-[#E31C25]">Toca las tarjetas para vincularlas</p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => setSelectedExercises([])} className="px-4 py-2 text-gray-400 hover:text-white font-bold transition-colors">Cancelar</button>
-            <button onClick={() => handleOpenAssign(selectedExercises)} className="px-6 py-2 bg-[#E31C25] text-white font-bold rounded-xl hover:bg-[#A6151B] transition-colors shadow-lg">Crear Superserie</button>
+          <div className="flex gap-2 w-full sm:w-auto">
+            <button 
+              onClick={handleToggleSupersetMode} 
+              className="flex-1 sm:flex-none px-4 py-3 sm:py-2 text-gray-400 hover:text-white font-bold transition-colors"
+            >
+              Cancelar
+            </button>
+            <button 
+              onClick={() => handleOpenAssign(selectedExercises)} 
+              disabled={selectedExercises.length < 2}
+              className={`flex-1 sm:flex-none px-6 py-3 sm:py-2 font-bold rounded-xl transition-colors shadow-lg ${
+                selectedExercises.length < 2 
+                  ? 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed' 
+                  : 'bg-[#E31C25] text-white hover:bg-[#A6151B]'
+              }`}
+            >
+              Crear Superserie
+            </button>
           </div>
         </div>
       )}
 
       {/* MODAL: Asignar (Individual o Superserie) */}
       {isAssignModalOpen && assigningExercises.length > 0 && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
             <div className="flex items-center justify-between p-5 border-b border-[#2a2a2a] bg-[#1a1a1a] shrink-0">
               <div>
@@ -440,7 +488,7 @@ export function WorkoutsPage() {
 
       {/* Modal de Creación/Edición General */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end animate-in fade-in duration-200">
           <div className="bg-[#121212] w-full max-w-md h-full border-l border-[#2a2a2a] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
             <div className="flex items-center justify-between p-6 border-b border-[#2a2a2a] bg-[#1a1a1a]">
               <h2 className="text-xl font-bold text-white">{editingId ? "Editar Ejercicio" : "Nuevo Ejercicio"}</h2>
