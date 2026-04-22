@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, Play, UserPlus, Calendar, Layers, CheckCircle2, Circle } from "lucide-react";
+import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, Play, UserPlus, Calendar, Layers, Circle } from "lucide-react";
 import { supabase } from "./lib/supabase"; 
 
 interface Exercise {
@@ -12,6 +12,12 @@ interface Exercise {
   kcal_estimate: number;
   time_estimate: number;
   rest_time: number;
+}
+
+// Nueva interfaz para permitir ejercicios duplicados en la superserie
+interface SelectedInstance {
+  instanceId: string;
+  exercise: Exercise;
 }
 
 export function WorkoutsPage() {
@@ -27,18 +33,18 @@ export function WorkoutsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [previewExercise, setPreviewExercise] = useState<Exercise | null>(null);
   
-  // --- MODO SUPERSERIE (Estilo iPhone) ---
+  // --- MODO SUPERSERIE (Soporta duplicados) ---
   const [isSupersetMode, setIsSupersetMode] = useState(false);
-  const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([]);
+  const [selectedExercises, setSelectedExercises] = useState<SelectedInstance[]>([]);
   
   // Modal de Asignación 
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [assigningExercises, setAssigningExercises] = useState<Exercise[]>([]);
+  const [assigningExercises, setAssigningExercises] = useState<SelectedInstance[]>([]);
   const [assignForm, setAssignForm] = useState({
     user_id: "",
     date: new Date().toISOString().split('T')[0],
     target_sets: 3,
-    exercises_config: {} as Record<string, { target_reps: number, target_weight: number }>
+    exercises_config: {} as Record<number, { target_reps: number, target_weight: number }> // Ahora indexado por número
   });
 
   const [clientSearchTerm, setClientSearchTerm] = useState("");
@@ -91,25 +97,28 @@ export function WorkoutsPage() {
     setIsModalOpen(true);
   };
 
-  // --- LÓGICA DE SELECCIÓN ---
-  const toggleSelection = (ex: Exercise) => {
-    if (selectedExercises.find(e => e.id === ex.id)) {
-      setSelectedExercises(selectedExercises.filter(e => e.id !== ex.id));
-    } else {
-      setSelectedExercises([...selectedExercises, ex]);
-    }
+  // --- LÓGICA DE SELECCIÓN (Permite duplicados) ---
+  const handleAddExercise = (ex: Exercise) => {
+    setSelectedExercises([...selectedExercises, { 
+      instanceId: Math.random().toString(36).substring(7), // ID único para esta tirada
+      exercise: ex 
+    }]);
+  };
+
+  const handleRemoveInstance = (instanceId: string) => {
+    setSelectedExercises(selectedExercises.filter(se => se.instanceId !== instanceId));
   };
 
   const handleToggleSupersetMode = () => {
     setIsSupersetMode(!isSupersetMode);
-    setSelectedExercises([]); // Limpiamos la selección si apagamos o encendemos el modo
+    setSelectedExercises([]); 
   };
 
-  const handleOpenAssign = (exercisesToAssign: Exercise[]) => {
+  const handleOpenAssign = (exercisesToAssign: SelectedInstance[]) => {
     setAssigningExercises(exercisesToAssign);
     const initialConfig: any = {};
-    exercisesToAssign.forEach(ex => {
-      initialConfig[ex.id] = { target_reps: 10, target_weight: 0 };
+    exercisesToAssign.forEach((_, index) => {
+      initialConfig[index] = { target_reps: 10, target_weight: 0 };
     });
 
     setAssignForm({
@@ -124,10 +133,10 @@ export function WorkoutsPage() {
     setIsAssignModalOpen(true);
   };
 
-  const updateExConfig = (exId: string, field: string, value: number) => {
+  const updateExConfig = (index: number, field: string, value: number) => {
     setAssignForm(prev => ({
       ...prev,
-      exercises_config: { ...prev.exercises_config, [exId]: { ...prev.exercises_config[exId], [field]: value } }
+      exercises_config: { ...prev.exercises_config, [index]: { ...prev.exercises_config[index], [field]: value } }
     }));
   };
 
@@ -158,13 +167,13 @@ export function WorkoutsPage() {
       const isSuperset = assigningExercises.length > 1;
       const supersetId = isSuperset ? `superset-${Date.now()}` : null;
 
-      const inserts = assigningExercises.map((ex, index) => ({
+      const inserts = assigningExercises.map((se, index) => ({
         user_id: assignForm.user_id,
-        exercise_id: ex.id,
+        exercise_id: se.exercise.id,
         assigned_date: assignForm.date,
         target_sets: assignForm.target_sets,
-        target_reps: assignForm.exercises_config[ex.id].target_reps,
-        target_weight: assignForm.exercises_config[ex.id].target_weight,
+        target_reps: assignForm.exercises_config[index].target_reps,
+        target_weight: assignForm.exercises_config[index].target_weight,
         superset_id: supersetId, 
         order_index: index 
       }));
@@ -175,7 +184,7 @@ export function WorkoutsPage() {
       
       setIsAssignModalOpen(false);
       setSelectedExercises([]);
-      setIsSupersetMode(false); // Salimos del modo superserie al terminar
+      setIsSupersetMode(false); 
       alert(isSuperset ? "¡Superserie asignada con éxito!" : "¡Ejercicio asignado correctamente!");
     } catch (error: any) {
       alert("Error al asignar. Verifica que has añadido las columnas 'superset_id' y 'order_index' en Supabase.");
@@ -206,7 +215,7 @@ export function WorkoutsPage() {
   );
 
   return (
-    <div className={`space-y-6 animate-in fade-in duration-500 relative pb-24 ${isSupersetMode ? 'select-none' : ''}`}>
+    <div className={`space-y-6 animate-in fade-in duration-500 relative pb-32 ${isSupersetMode ? 'select-none' : ''}`}>
       
       {/* Cabecera */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -260,16 +269,15 @@ export function WorkoutsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredExercises.map((ex) => {
-            const isSelected = selectedExercises.some(e => e.id === ex.id);
-            const selectionIndex = selectedExercises.findIndex(e => e.id === ex.id) + 1;
+            const selectionCount = selectedExercises.filter(se => se.exercise.id === ex.id).length;
+            const isSelected = selectionCount > 0;
 
             return (
               <div 
                 key={ex.id} 
                 onClick={() => {
-                  // Si estamos en modo superserie, hacer clic en la tarjeta la selecciona
                   if (isSupersetMode) {
-                    toggleSelection(ex);
+                    handleAddExercise(ex);
                   }
                 }}
                 className={`bg-[#1a1a1a] border rounded-2xl overflow-hidden transition-all group ${
@@ -287,18 +295,17 @@ export function WorkoutsPage() {
                 <div 
                   className={`h-48 bg-[#121212] relative overflow-hidden ${!isSupersetMode && ex.video_url ? 'cursor-pointer' : ''}`}
                   onClick={() => {
-                    // Si NO estamos en modo superserie y hay vídeo, lo abrimos
                     if (!isSupersetMode && ex.video_url) setPreviewExercise(ex);
                   }}
                 >
                   
-                  {/* Indicador visual de selección en Modo Superserie */}
+                  {/* Indicador visual de selección */}
                   {isSupersetMode && (
                     <div className="absolute top-3 left-3 z-30 flex items-center justify-center">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-lg ${
                         isSelected ? 'bg-[#E31C25] text-white scale-110' : 'bg-black/60 text-gray-400 border border-white/20'
                       }`}>
-                        {isSelected ? <span className="font-black text-sm">{selectionIndex}</span> : <Circle size={20} />}
+                        {isSelected ? <span className="font-black text-sm">x{selectionCount}</span> : <Circle size={20} />}
                       </div>
                     </div>
                   )}
@@ -325,10 +332,9 @@ export function WorkoutsPage() {
                   <div className="flex justify-between items-start mb-2">
                     <h3 className="text-lg font-bold text-white truncate pr-2">{ex.name}</h3>
                     
-                    {/* Botones de acción (ocultos en Modo Superserie para no molestar) */}
                     {!isSupersetMode && (
                       <div className="flex gap-2 shrink-0">
-                        <button onClick={(e) => { e.stopPropagation(); handleOpenAssign([ex]); }} title="Asignar a atleta" className="text-gray-500 hover:text-white transition-colors bg-[#121212] p-1.5 rounded-md border border-[#2a2a2a]">
+                        <button onClick={(e) => { e.stopPropagation(); handleOpenAssign([{ instanceId: 'single', exercise: ex }]); }} title="Asignar a atleta" className="text-gray-500 hover:text-white transition-colors bg-[#121212] p-1.5 rounded-md border border-[#2a2a2a]">
                           <UserPlus size={16} />
                         </button>
                         <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(ex); }} title="Editar" className="text-gray-500 hover:text-blue-500 transition-colors bg-[#121212] p-1.5 rounded-md border border-[#2a2a2a]">
@@ -348,32 +354,32 @@ export function WorkoutsPage() {
         </div>
       )}
 
-      {/* BARRA FLOTANTE DE SUPERSERIES */}
+      {/* BARRA FLOTANTE DE SUPERSERIES MEJORADA */}
       {isSupersetMode && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#121212] border-2 border-[#E31C25] p-4 rounded-2xl shadow-[0_10px_40px_rgba(227,28,37,0.5)] z-40 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 animate-in slide-in-from-bottom-10">
-          <div className="flex items-center gap-3">
-            <div className="bg-[#E31C25]/20 p-2 rounded-lg text-[#E31C25]"><Layers size={24} /></div>
-            <div>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#121212] border-2 border-[#E31C25] p-4 rounded-2xl shadow-[0_10px_40px_rgba(227,28,37,0.5)] z-40 flex flex-col items-center gap-4 animate-in slide-in-from-bottom-10 w-[95%] max-w-2xl">
+          <div className="flex items-center gap-3 w-full">
+            <div className="bg-[#E31C25]/20 p-2 rounded-lg text-[#E31C25] shrink-0"><Layers size={24} /></div>
+            <div className="flex-1 min-w-0">
               <p className="text-white font-bold">{selectedExercises.length} Ejercicios seleccionados</p>
-              <p className="text-xs text-[#E31C25]">Toca las tarjetas para vincularlas</p>
+              
+              {/* Lista horizontal de los ejercicios elegidos */}
+              <div className="flex gap-2 overflow-x-auto mt-2 pb-1 custom-scrollbar w-full">
+                {selectedExercises.length === 0 && <span className="text-xs text-gray-500 italic">Toca las tarjetas para añadirlas...</span>}
+                {selectedExercises.map((se, index) => (
+                  <div key={se.instanceId} className="flex items-center gap-1 bg-[#2a2a2a] border border-[#3a3a3a] px-2 py-1 rounded-md shrink-0">
+                    <span className="text-xs font-bold text-gray-300"><span className="text-[#E31C25]">{index + 1}.</span> {se.exercise.name}</span>
+                    <button onClick={() => handleRemoveInstance(se.instanceId)} className="text-gray-500 hover:text-white ml-1 bg-black/20 rounded-full p-0.5">
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
             </div>
           </div>
-          <div className="flex gap-2 w-full sm:w-auto">
-            <button 
-              onClick={handleToggleSupersetMode} 
-              className="flex-1 sm:flex-none px-4 py-3 sm:py-2 text-gray-400 hover:text-white font-bold transition-colors"
-            >
-              Cancelar
-            </button>
-            <button 
-              onClick={() => handleOpenAssign(selectedExercises)} 
-              disabled={selectedExercises.length < 2}
-              className={`flex-1 sm:flex-none px-6 py-3 sm:py-2 font-bold rounded-xl transition-colors shadow-lg ${
-                selectedExercises.length < 2 
-                  ? 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed' 
-                  : 'bg-[#E31C25] text-white hover:bg-[#A6151B]'
-              }`}
-            >
+          <div className="flex gap-2 w-full sm:w-auto self-end">
+            <button onClick={handleToggleSupersetMode} className="flex-1 sm:flex-none px-4 py-2 text-gray-400 hover:text-white font-bold transition-colors">Cancelar</button>
+            <button onClick={() => handleOpenAssign(selectedExercises)} disabled={selectedExercises.length < 2} className={`flex-1 sm:flex-none px-6 py-2 font-bold rounded-xl transition-colors shadow-lg ${selectedExercises.length < 2 ? 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed' : 'bg-[#E31C25] text-white hover:bg-[#A6151B]'}`}>
               Crear Superserie
             </button>
           </div>
@@ -389,7 +395,7 @@ export function WorkoutsPage() {
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   {assigningExercises.length > 1 ? <><Layers className="text-[#E31C25] w-5 h-5"/> Asignar Superserie</> : 'Asignar a Atleta'}
                 </h2>
-                <p className="text-xs text-gray-400 mt-1">{assigningExercises.length > 1 ? `${assigningExercises.length} ejercicios vinculados` : assigningExercises[0].name}</p>
+                <p className="text-xs text-gray-400 mt-1">{assigningExercises.length > 1 ? `${assigningExercises.length} ejercicios vinculados` : assigningExercises[0].exercise.name}</p>
               </div>
               <button onClick={() => setIsAssignModalOpen(false)} className="text-gray-400 hover:text-white bg-[#2a2a2a] p-1.5 rounded-full transition-colors"><X size={18} /></button>
             </div>
@@ -433,18 +439,18 @@ export function WorkoutsPage() {
                 {/* Bloque 3: Configuración de cada Ejercicio */}
                 <div className="space-y-3">
                   <label className="block text-sm font-bold text-gray-400 mb-2">Configuración por ejercicio:</label>
-                  {assigningExercises.map((ex, index) => (
-                    <div key={ex.id} className="bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl flex items-center gap-4">
+                  {assigningExercises.map((se, index) => (
+                    <div key={se.instanceId} className="bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl flex items-center gap-4">
                       <div className="w-6 h-6 rounded-full bg-[#2a2a2a] text-gray-400 flex items-center justify-center text-xs font-bold shrink-0">{index + 1}</div>
-                      <div className="flex-1 truncate font-bold text-white text-sm">{ex.name}</div>
+                      <div className="flex-1 truncate font-bold text-white text-sm">{se.exercise.name}</div>
                       <div className="flex gap-2 shrink-0">
                         <div>
                           <p className="text-[10px] text-gray-500 uppercase font-bold text-center mb-1">Reps</p>
-                          <input type="number" required value={assignForm.exercises_config[ex.id]?.target_reps || 0} onChange={(e) => updateExConfig(ex.id, 'target_reps', parseInt(e.target.value))} className="w-16 bg-[#121212] border border-[#2a2a2a] p-1.5 rounded text-white text-center text-sm outline-none focus:border-[#E31C25]" />
+                          <input type="number" required value={assignForm.exercises_config[index]?.target_reps || 0} onChange={(e) => updateExConfig(index, 'target_reps', parseInt(e.target.value))} className="w-16 bg-[#121212] border border-[#2a2a2a] p-1.5 rounded text-white text-center text-sm outline-none focus:border-[#E31C25]" />
                         </div>
                         <div>
                           <p className="text-[10px] text-gray-500 uppercase font-bold text-center mb-1">Kg</p>
-                          <input type="number" value={assignForm.exercises_config[ex.id]?.target_weight || 0} onChange={(e) => updateExConfig(ex.id, 'target_weight', parseFloat(e.target.value))} className="w-16 bg-[#121212] border border-[#2a2a2a] p-1.5 rounded text-white text-center text-sm outline-none focus:border-[#E31C25]" />
+                          <input type="number" value={assignForm.exercises_config[index]?.target_weight || 0} onChange={(e) => updateExConfig(index, 'target_weight', parseFloat(e.target.value))} className="w-16 bg-[#121212] border border-[#2a2a2a] p-1.5 rounded text-white text-center text-sm outline-none focus:border-[#E31C25]" />
                         </div>
                       </div>
                     </div>
