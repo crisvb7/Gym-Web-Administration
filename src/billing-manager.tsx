@@ -79,20 +79,20 @@ export function BillingManager() {
           </div>
           
           <div style="text-align: right; display: flex; flex-direction: column; justify-content: center;">
-            <h2 style="margin: 0 0 12px 0; color: #E31C25; font-size: 28px; font-weight: 800; letter-spacing: -0.5px;">FACTURA</h2>
+            
+            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 16px;">
+              <h2 style="margin: 0; color: #E31C25; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; line-height: 1;">FACTURA</h2>
+              <span style="background: #10b981; color: white; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: bold; letter-spacing: 1px; display: inline-block; line-height: 1;">PAGADA</span>
+            </div>
+
             <table style="margin-left: auto; text-align: left; font-size: 14px; color: #52525b;">
               <tr>
-                <td style="padding-right: 16px; padding-bottom: 4px; text-align: right;"><strong>Nº:</strong></td>
-                <td style="padding-bottom: 4px; color: #18181b; font-weight: 500;">FAC-${invoiceNumber}</td>
+                <td style="padding-right: 16px; padding-bottom: 6px; text-align: right;"><strong>Nº:</strong></td>
+                <td style="padding-bottom: 6px; color: #18181b; font-weight: 500;">FAC-${invoiceNumber}</td>
               </tr>
               <tr>
-                <td style="padding-right: 16px; padding-bottom: 12px; text-align: right;"><strong>Fecha:</strong></td>
-                <td style="padding-bottom: 12px; color: #18181b; font-weight: 500;">${formattedDate}</td>
-              </tr>
-              <tr>
-                <td colspan="2" style="text-align: right;">
-                  <span style="background: #10b981; color: white; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: bold; letter-spacing: 1px;">PAGADA</span>
-                </td>
+                <td style="padding-right: 16px; text-align: right;"><strong>Fecha:</strong></td>
+                <td style="color: #18181b; font-weight: 500;">${formattedDate}</td>
               </tr>
             </table>
           </div>
