@@ -67,8 +67,8 @@ export function BillingManager() {
           <div style="text-align: right; color: #666; font-size: 12px; line-height: 1.6;">
             <strong>Daniel Miranda - Expertos en Movimiento</strong><br>
             CIF/NIF: 12345678Z<br>
-            Calle del Movimiento 123, Ciudad<br>
-            contacto@danielmiranda.com
+            Calle Gonzalez Besada 32, Oviedo<br>
+            danimirandatrainer@gmail.com
           </div>
         </div>
 
