@@ -158,7 +158,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
             
             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 16px;">
               <h2 style="margin: 0; color: #E31C25; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; line-height: 1;">FACTURA</h2>
-              <span style="background: #10b981; color: white; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: bold; letter-spacing: 1px; display: inline-block; line-height: 1;">PAGADA</span>
+              <span style="background: #10b981; color: white; padding: 3px 12px 6px 12px; border-radius: 6px; font-size: 12px; font-weight: bold; letter-spacing: 1px; display: inline-block; line-height: 1; margin-top: 4px;">PAGADA</span>
             </div>
 
             <table style="margin-left: auto; text-align: left; font-size: 14px; color: #52525b;">
