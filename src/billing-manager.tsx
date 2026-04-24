@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, Loader2, Receipt, FileText, AlertCircle } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import html2pdf from "html2pdf.js";
 
 export function BillingManager() {
   const [clients, setClients] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isProcessingPdf, setIsProcessingPdf] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
   const today = new Date();
@@ -13,7 +15,7 @@ export function BillingManager() {
 
   // --- CONFIGURACIÓN DEL GIMNASIO ---
   const DEFAULT_FEE = 50.00; 
-  const PAYMENT_DEADLINE_DAY = 5; // Día límite de pago de cada mes (ej: día 5)
+  const PAYMENT_DEADLINE_DAY = 5;
 
   const fetchData = async () => {
     setLoading(true);
@@ -27,6 +29,7 @@ export function BillingManager() {
     if (clientsData) setClients(clientsData);
 
     const monthStr = currentMonth.toISOString().split('T')[0]; 
+    // Ahora leemos por created_at o due_date para cuadrar con tu BD
     const { data: invoicesData } = await supabase
       .from('invoices')
       .select('*')
@@ -45,148 +48,153 @@ export function BillingManager() {
   const handlePrevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
   const handleNextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
 
-  const togglePayment = async (clientId: string, existingInvoice: any) => {
+  // --- PLANTILLA HTML SÚPER PROFESIONAL PARA EL PDF ---
+  const getInvoiceHTML = (client: any, invoice: any, monthLabel: string) => {
+    const dateObj = new Date(invoice.payment_date || new Date());
+    const formattedDate = dateObj.toLocaleDateString('es-ES');
+    const invoiceNumber = invoice.id.split('-')[0].toUpperCase();
+
+    return `
+      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #1a1a1a; background: white; width: 800px; box-sizing: border-box;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #E31C25; padding-bottom: 20px; margin-bottom: 30px;">
+          <div style="display: flex; align-items: center; gap: 15px;">
+            <img src="/logo.png" style="width: 80px; height: 80px; object-fit: contain;" onerror="this.style.display='none'" />
+            <div>
+              <h1 style="color: #1a1a1a; margin: 0; font-size: 28px; text-transform: uppercase; letter-spacing: -1px;">DANIEL <span style="color: #E31C25;">MIRANDA</span></h1>
+              <p style="margin: 4px 0 0 0; color: #666; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 2px;">Expertos en Movimiento</p>
+            </div>
+          </div>
+          <div style="text-align: right; color: #666; font-size: 12px; line-height: 1.6;">
+            <strong>Daniel Miranda - Expertos en Movimiento</strong><br>
+            CIF/NIF: 12345678Z<br>
+            Calle del Movimiento 123, Ciudad<br>
+            contacto@danielmiranda.com
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; margin-bottom: 40px;">
+          <div style="background: #f8f9fa; padding: 20px; border-left: 4px solid #E31C25; border-radius: 4px; min-width: 250px;">
+            <h3 style="margin: 0 0 10px 0; color: #1a1a1a; font-size: 14px; text-transform: uppercase;">Facturado a:</h3>
+            <p style="margin: 4px 0; color: #333; font-size: 18px; font-weight: bold;">${client.first_name} ${client.last_name}</p>
+          </div>
+          <div style="text-align: right;">
+            <h2 style="margin: 0 0 10px 0; color: #E31C25; font-size: 24px; text-transform: uppercase;">FACTURA</h2>
+            <p style="margin: 4px 0; color: #666; font-size: 14px;"><strong>Nº:</strong> FAC-${invoiceNumber}</p>
+            <p style="margin: 4px 0; color: #666; font-size: 14px;"><strong>Fecha:</strong> ${formattedDate}</p>
+            <div style="display: inline-block; margin-top: 10px; background: #22c55e; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold;">PAGADA</div>
+          </div>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+          <thead>
+            <tr style="background: #1a1a1a; color: white;">
+              <th style="text-align: left; padding: 15px; font-size: 14px; text-transform: uppercase;">Concepto</th>
+              <th style="text-align: right; padding: 15px; font-size: 14px; text-transform: uppercase;">Importe</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding: 20px 15px; border-bottom: 1px solid #eee; color: #333; font-size: 16px;">${invoice.description} - ${monthLabel}</td>
+              <td style="text-align: right; padding: 20px 15px; border-bottom: 1px solid #eee; color: #333; font-size: 16px; font-weight: bold;">${invoice.amount.toFixed(2)} €</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 50px;">
+          <div style="width: 300px;">
+            <div style="display: flex; justify-content: space-between; padding: 15px; background: #1a1a1a; color: white; border-radius: 8px;">
+              <span style="font-size: 18px; font-weight: bold;">TOTAL</span>
+              <span style="font-size: 24px; font-weight: bold; color: #E31C25;">${invoice.amount.toFixed(2)} €</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align: center; color: #888; font-size: 12px; border-top: 1px solid #eee; padding-top: 20px;">
+          <p style="margin: 0;">Este documento es un justificante de pago válido.</p>
+          <p style="margin: 5px 0 0 0;">Gracias por confiar en Daniel Miranda - Expertos en Movimiento.</p>
+        </div>
+      </div>
+    `;
+  };
+
+  // --- LÓGICA DE PAGO Y GENERACIÓN/SUBIDA DE PDF ---
+  const togglePayment = async (client: any, existingInvoice: any) => {
     const monthStr = currentMonth.toISOString().split('T')[0];
 
     if (existingInvoice) {
       setInvoices(invoices.filter(inv => inv.id !== existingInvoice.id));
       await supabase.from('invoices').delete().eq('id', existingInvoice.id);
     } else {
-      const tempId = `temp-${Date.now()}`;
-      const newInvoice = { 
-        id: tempId, 
-        user_id: clientId, 
-        due_date: monthStr, 
-        status: 'paid', 
-        amount: DEFAULT_FEE, 
-        description: 'Cuota Mensual',
-        payment_date: new Date().toISOString()
-      };
-      setInvoices([...invoices, newInvoice]);
+      setIsProcessingPdf(true); // Bloqueamos la UI mientras fabrica el PDF
 
-      await supabase.from('invoices').insert([{
-        user_id: clientId,
-        amount: DEFAULT_FEE,
-        description: 'Cuota Mensual',
-        status: 'paid',
-        due_date: monthStr,
-        payment_date: new Date().toISOString()
-      }]);
-      fetchData(); // Recargamos para obtener el ID real de Supabase
+      try {
+        // 1. Insertamos la factura en la Base de Datos para obtener su ID
+        const { data: insertedData, error: insertError } = await supabase.from('invoices').insert([{
+          user_id: client.id,
+          amount: DEFAULT_FEE,
+          description: 'Cuota Mensual',
+          status: 'pagada', // 'pagada' para que cuadre con la app
+          due_date: monthStr,
+          payment_date: new Date().toISOString()
+        }]).select();
+
+        if (insertError || !insertedData) throw insertError;
+        const newInvoice = insertedData[0];
+
+        // 2. Preparamos el código HTML para el PDF
+        const monthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+        const htmlContent = getInvoiceHTML(client, newInvoice, monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1));
+        const element = document.createElement('div');
+        element.innerHTML = htmlContent;
+
+        // 3. Generamos el PDF como un archivo (Blob)
+        const opt = {
+          margin: 0,
+          filename: `Factura_${newInvoice.id}.pdf`,
+          image: { type: 'jpeg', quality: 1 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
+
+        // 4. Lo subimos al Storage de Supabase
+        const filePath = `${client.id}/${newInvoice.id}.pdf`;
+        const { error: uploadError } = await supabase.storage
+          .from('invoices')
+          .upload(filePath, pdfBlob, {
+            contentType: 'application/pdf',
+            upsert: true
+          });
+
+        // 5. Si se sube bien, actualizamos la tabla con la URL pública
+        if (!uploadError) {
+          const { data: publicUrlData } = supabase.storage.from('invoices').getPublicUrl(filePath);
+          await supabase.from('invoices').update({ pdf_url: publicUrlData.publicUrl }).eq('id', newInvoice.id);
+        }
+        
+      } catch (err) {
+        console.error("Error al generar o subir la factura:", err);
+        alert("El pago se guardó, pero hubo un error generando el PDF.");
+      } finally {
+        await fetchData(); 
+        setIsProcessingPdf(false);
+      }
     }
   };
 
-  // --- GENERADOR AUTOMÁTICO DE FACTURAS (PDF) ---
-  const handlePrintInvoice = (client: any, invoice: any) => {
-    const monthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
-    const capitalizedMonth = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
-    
-    // Formateamos la fecha de pago
-    const paymentDate = invoice.payment_date 
-      ? new Date(invoice.payment_date).toLocaleDateString('es-ES') 
-      : new Date().toLocaleDateString('es-ES');
-    
-    // Generamos un número de factura corto basado en el ID
-    const invoiceNumber = invoice.id.split('-')[0].toUpperCase();
-
-    // Creamos una ventana invisible para imprimir
-    const printWindow = window.open('', '', 'width=800,height=600');
-    if (!printWindow) return alert("Por favor, permite las ventanas emergentes para generar la factura.");
-
-    const htmlContent = `
-      <html>
-        <head>
-          <title>Factura_${client.first_name}_${capitalizedMonth.replace(' ', '_')}</title>
-          <style>
-            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #1a1a1a; }
-            .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #E31C25; padding-bottom: 20px; margin-bottom: 30px; }
-            .brand h1 { color: #E31C25; margin: 0; font-size: 28px; text-transform: uppercase; }
-            .brand p { margin: 4px 0 0 0; color: #666; font-size: 14px; }
-            .company-details { text-align: right; color: #666; font-size: 14px; line-height: 1.5; }
-            .invoice-info { display: flex; justify-content: space-between; margin-bottom: 40px; }
-            .client-box { background: #f5f5f5; padding: 20px; border-radius: 8px; min-width: 250px; }
-            .client-box h3 { margin: 0 0 10px 0; color: #333; }
-            .client-box p { margin: 4px 0; color: #555; }
-            .meta-box p { margin: 4px 0; text-align: right; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-            th { background: #1a1a1a; color: white; text-align: left; padding: 12px; font-size: 14px; }
-            td { padding: 12px; border-bottom: 1px solid #ddd; color: #333; }
-            .total-row { font-weight: bold; font-size: 18px; }
-            .total-amount { color: #E31C25; font-size: 24px; }
-            .footer { margin-top: 50px; text-align: center; color: #888; font-size: 12px; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="brand">
-              <h1>GYM APP</h1>
-              <p>Factura Simplificada</p>
-            </div>
-            <div class="company-details">
-              <strong>Centro Deportivo</strong><br>
-              CIF/NIF: B12345678<br>
-              Calle Principal 123, Oviedo<br>
-              contacto@gymapp.com
-            </div>
-          </div>
-          
-          <div class="invoice-info">
-            <div class="client-box">
-              <h3>Datos del Cliente</h3>
-              <p><strong>Nombre:</strong> ${client.first_name} ${client.last_name}</p>
-            </div>
-            <div class="meta-box">
-              <p><strong>Nº Factura:</strong> FAC-${invoiceNumber}</p>
-              <p><strong>Fecha de Emisión:</strong> ${paymentDate}</p>
-              <p><strong>Estado:</strong> PAGADO</p>
-            </div>
-          </div>
-
-          <table>
-            <thead>
-              <tr>
-                <th>Concepto</th>
-                <th style="text-align: right;">Importe</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>${invoice.description} - ${capitalizedMonth}</td>
-                <td style="text-align: right;">${invoice.amount} €</td>
-              </tr>
-              <tr>
-                <td style="text-align: right; border-bottom: none; padding-top: 20px;" class="total-row">TOTAL</td>
-                <td style="text-align: right; border-bottom: none; padding-top: 20px;" class="total-row total-amount">${invoice.amount} €</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="footer">
-            <p>Gracias por confiar en nosotros. Este documento es un justificante de pago válido.</p>
-          </div>
-
-          <script>
-            window.onload = function() {
-              window.print();
-              setTimeout(function() { window.close(); }, 500);
-            }
-          </script>
-        </body>
-      </html>
-    `;
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
+  const handlePrintInvoice = (invoice: any) => {
+    if (invoice.pdf_url) {
+      window.open(invoice.pdf_url, '_blank');
+    } else {
+      alert("El PDF se está procesando o no se pudo generar.");
+    }
   };
 
-  // --- CÁLCULO DE DÍAS RESTANTES ---
   const getDaysStatus = () => {
-    // Para asegurar precisión, usamos solo YYYY-MM-DD
     const todayReal = new Date();
     const todayDate = new Date(todayReal.getFullYear(), todayReal.getMonth(), todayReal.getDate());
-    
-    // Calculamos el límite para el mes que estamos visualizando
     const deadlineDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), PAYMENT_DEADLINE_DAY);
-    
     const diffTime = deadlineDate.getTime() - todayDate.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -204,11 +212,18 @@ export function BillingManager() {
 
   const monthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   const capitalizedMonthLabel = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
-  const totalPaid = displayData.filter(d => d.invoice).length;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       
+      {/* CAPA DE BLOQUEO DE CARGA */}
+      {isProcessingPdf && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex flex-col items-center justify-center">
+          <Loader2 className="w-12 h-12 animate-spin text-[#E31C25] mb-4" />
+          <p className="text-white font-bold text-lg">Generando factura PDF y enlazando a la App...</p>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Facturación Mensual</h1>
@@ -278,7 +293,6 @@ export function BillingManager() {
                           {isPaid ? 'Pagado' : 'Sin Pagar'}
                         </div>
                         
-                        {/* Indicador de días si NO está pagado */}
                         {!isPaid && (
                           <div className={`text-[10px] flex items-center gap-1 mt-1 ${daysStatus.color}`}>
                             {daysStatus.text.includes('Vencido') && <AlertCircle size={10} />}
@@ -291,20 +305,20 @@ export function BillingManager() {
                     <td className="p-4 text-right pr-6">
                       <div className="flex items-center justify-end gap-2">
                         
-                        {/* Botón de Factura (Solo aparece si está pagado) */}
                         {isPaid && (
                           <button 
-                            onClick={() => handlePrintInvoice(data, data.invoice)}
+                            onClick={() => handlePrintInvoice(data.invoice)}
                             className="p-2 bg-[#2a2a2a] hover:bg-emerald-500/20 text-gray-300 hover:text-emerald-500 border border-[#3f3f46] hover:border-emerald-500/30 rounded-xl transition-colors flex items-center gap-2"
-                            title="Descargar Factura"
+                            title="Ver Factura PDF"
                           >
                             <FileText size={18} />
-                            <span className="text-xs font-bold hidden sm:block">Factura</span>
+                            <span className="text-xs font-bold hidden sm:block">PDF</span>
                           </button>
                         )}
 
                         <button 
-                          onClick={() => togglePayment(data.id, data.invoice)}
+                          onClick={() => togglePayment(data, data.invoice)}
+                          disabled={isProcessingPdf}
                           className={`px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-lg active:scale-95 ${
                             isPaid 
                               ? 'bg-[#121212] text-red-500 hover:bg-red-500/10 border border-[#2a2a2a] hover:border-red-500/30' 
