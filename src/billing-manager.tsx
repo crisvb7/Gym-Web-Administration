@@ -55,17 +55,16 @@ export function BillingManager() {
     const invoiceNumber = invoice.id.split('-')[0].toUpperCase();
 
     return `
-      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #1a1a1a; background: white; width: 800px; box-sizing: border-box;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #E31C25; padding-bottom: 20px; margin-bottom: 30px;">
-          <div style="display: flex; align-items: center; gap: 15px;">
-            <img src="/logo.png" style="width: 80px; height: 80px; object-fit: contain;" onerror="this.style.display='none'" />
-            <div>
-              <h1 style="color: #1a1a1a; margin: 0; font-size: 28px; text-transform: uppercase; letter-spacing: -1px;">DANIEL <span style="color: #E31C25;">MIRANDA</span></h1>
-              <p style="margin: 4px 0 0 0; color: #666; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 2px;">Expertos en Movimiento</p>
-            </div>
+      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 50px; color: #18181b; background: white; width: 800px; box-sizing: border-box; position: relative;">
+        
+        <div style="position: absolute; top: 0; left: 0; right: 0; height: 8px; background-color: #E31C25;"></div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 50px; margin-top: 10px;">
+          <div>
+            <img src="/logo.png" style="height: 65px; width: auto; max-width: 350px; object-fit: contain;" onerror="this.style.display='none'" />
           </div>
-          <div style="text-align: right; color: #666; font-size: 12px; line-height: 1.6;">
-            <strong>Daniel Miranda - Expertos en Movimiento</strong><br>
+          <div style="text-align: right; color: #52525b; font-size: 13px; line-height: 1.6;">
+            <strong style="color: #18181b; font-size: 15px;">Daniel Miranda - Expertos en Movimiento</strong><br>
             CIF/NIF: 12345678Z<br>
             Calle Gonzalez Besada 32, Oviedo<br>
             danimirandatrainer@gmail.com
@@ -73,46 +72,59 @@ export function BillingManager() {
         </div>
 
         <div style="display: flex; justify-content: space-between; margin-bottom: 40px;">
-          <div style="background: #f8f9fa; padding: 20px; border-left: 4px solid #E31C25; border-radius: 4px; min-width: 250px;">
-            <h3 style="margin: 0 0 10px 0; color: #1a1a1a; font-size: 14px; text-transform: uppercase;">Facturado a:</h3>
-            <p style="margin: 4px 0; color: #333; font-size: 18px; font-weight: bold;">${client.first_name} ${client.last_name}</p>
+          
+          <div style="background: #f4f4f5; padding: 24px; border-radius: 12px; min-width: 280px; border-left: 4px solid #E31C25;">
+            <p style="margin: 0 0 8px 0; color: #71717a; font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Facturado a:</p>
+            <h3 style="margin: 0; color: #18181b; font-size: 20px;">${client.first_name} ${client.last_name}</h3>
           </div>
-          <div style="text-align: right;">
-            <h2 style="margin: 0 0 10px 0; color: #E31C25; font-size: 24px; text-transform: uppercase;">FACTURA</h2>
-            <p style="margin: 4px 0; color: #666; font-size: 14px;"><strong>Nº:</strong> FAC-${invoiceNumber}</p>
-            <p style="margin: 4px 0; color: #666; font-size: 14px;"><strong>Fecha:</strong> ${formattedDate}</p>
-            <div style="display: inline-block; margin-top: 10px; background: #22c55e; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold;">PAGADA</div>
+          
+          <div style="text-align: right; display: flex; flex-direction: column; justify-content: center;">
+            <h2 style="margin: 0 0 12px 0; color: #E31C25; font-size: 28px; font-weight: 800; letter-spacing: -0.5px;">FACTURA</h2>
+            <table style="margin-left: auto; text-align: left; font-size: 14px; color: #52525b;">
+              <tr>
+                <td style="padding-right: 16px; padding-bottom: 4px; text-align: right;"><strong>Nº:</strong></td>
+                <td style="padding-bottom: 4px; color: #18181b; font-weight: 500;">FAC-${invoiceNumber}</td>
+              </tr>
+              <tr>
+                <td style="padding-right: 16px; padding-bottom: 12px; text-align: right;"><strong>Fecha:</strong></td>
+                <td style="padding-bottom: 12px; color: #18181b; font-weight: 500;">${formattedDate}</td>
+              </tr>
+              <tr>
+                <td colspan="2" style="text-align: right;">
+                  <span style="background: #10b981; color: white; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: bold; letter-spacing: 1px;">PAGADA</span>
+                </td>
+              </tr>
+            </table>
           </div>
         </div>
 
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+        <table style="width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 40px;">
           <thead>
-            <tr style="background: #1a1a1a; color: white;">
-              <th style="text-align: left; padding: 15px; font-size: 14px; text-transform: uppercase;">Concepto</th>
-              <th style="text-align: right; padding: 15px; font-size: 14px; text-transform: uppercase;">Importe</th>
+            <tr>
+              <th style="background: #18181b; color: white; text-align: left; padding: 16px; font-size: 13px; text-transform: uppercase; border-top-left-radius: 8px; border-bottom-left-radius: 8px; letter-spacing: 0.5px;">Concepto</th>
+              <th style="background: #18181b; color: white; text-align: right; padding: 16px; font-size: 13px; text-transform: uppercase; border-top-right-radius: 8px; border-bottom-right-radius: 8px; letter-spacing: 0.5px;">Importe</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td style="padding: 20px 15px; border-bottom: 1px solid #eee; color: #333; font-size: 16px;">${invoice.description} - ${monthLabel}</td>
-              <td style="text-align: right; padding: 20px 15px; border-bottom: 1px solid #eee; color: #333; font-size: 16px; font-weight: bold;">${invoice.amount.toFixed(2)} €</td>
+              <td style="padding: 24px 16px; border-bottom: 1px solid #e4e4e7; color: #3f3f46; font-size: 15px;">${invoice.description} - ${monthLabel}</td>
+              <td style="text-align: right; padding: 24px 16px; border-bottom: 1px solid #e4e4e7; color: #18181b; font-size: 16px; font-weight: 600;">${invoice.amount.toFixed(2)} €</td>
             </tr>
           </tbody>
         </table>
 
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 50px;">
-          <div style="width: 300px;">
-            <div style="display: flex; justify-content: space-between; padding: 15px; background: #1a1a1a; color: white; border-radius: 8px;">
-              <span style="font-size: 18px; font-weight: bold;">TOTAL</span>
-              <span style="font-size: 24px; font-weight: bold; color: #E31C25;">${invoice.amount.toFixed(2)} €</span>
-            </div>
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 60px;">
+          <div style="background: #f4f4f5; padding: 24px 32px; border-radius: 12px; min-width: 250px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 14px; color: #52525b; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Total</span>
+            <span style="font-size: 28px; font-weight: 900; color: #E31C25;">${invoice.amount.toFixed(2)} €</span>
           </div>
         </div>
 
-        <div style="text-align: center; color: #888; font-size: 12px; border-top: 1px solid #eee; padding-top: 20px;">
-          <p style="margin: 0;">Este documento es un justificante de pago válido.</p>
-          <p style="margin: 5px 0 0 0;">Gracias por confiar en Daniel Miranda - Expertos en Movimiento.</p>
+        <div style="text-align: center; color: #a1a1aa; font-size: 13px; border-top: 1px solid #e4e4e7; padding-top: 30px;">
+          <p style="margin: 0 0 4px 0;">Este documento es un justificante de pago válido.</p>
+          <p style="margin: 0;">Gracias por confiar en <strong style="color: #71717a;">Daniel Miranda - Expertos en Movimiento</strong>.</p>
         </div>
+        
       </div>
     `;
   };
