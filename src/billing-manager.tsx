@@ -20,7 +20,6 @@ export function BillingManager() {
   // Estados para el Modal Dinámico
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [clientToBill, setClientToBill] = useState<any>(null);
-  // Añadimos 'isFixed' para saber si la línea se puede editar o borrar
   const [currentInvoiceItems, setCurrentInvoiceItems] = useState<{desc: string, amount: string, isFixed: boolean}[]>([]);
   
   const today = new Date();
@@ -30,14 +29,12 @@ export function BillingManager() {
   const fetchData = async () => {
     setLoading(true);
     
-    // Rol del usuario
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
       setIsAdmin(profile?.role === 'admin');
     }
     
-    // Clientes con cuotas y nutrición
     const { data: clientsData } = await supabase
       .from('profiles')
       .select('id, first_name, last_name, fee, nutrition_fee')
@@ -45,7 +42,6 @@ export function BillingManager() {
       .order('first_name', { ascending: true });
     if (clientsData) setClients(clientsData);
     
-    // Facturas del mes
     const monthStr = currentMonth.toISOString().split('T')[0]; 
     const { data: invoicesData } = await supabase.from('invoices').select('*').eq('due_date', monthStr);
     if (invoicesData) setInvoices(invoicesData);
@@ -69,10 +65,7 @@ export function BillingManager() {
     const base = parseFloat(tempBaseFee) || 0;
     const nutri = parseFloat(tempNutriFee) || 0;
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({ fee: base, nutrition_fee: nutri })
-      .eq('id', clientId);
+    const { error } = await supabase.from('profiles').update({ fee: base, nutrition_fee: nutri }).eq('id', clientId);
 
     if (!error) {
       setClients(clients.map(c => c.id === clientId ? { ...c, fee: base, nutrition_fee: nutri } : c));
@@ -86,7 +79,6 @@ export function BillingManager() {
   const openBillingModal = (client: any) => {
     setClientToBill(client);
     
-    // Pre-cargamos los elementos FIJOS de la base de datos
     const initialItems = [];
     initialItems.push({ desc: 'Cuota Mensual', amount: (client.fee || DEFAULT_FEE).toString(), isFixed: true });
     
@@ -112,9 +104,11 @@ export function BillingManager() {
     setCurrentInvoiceItems(newItems);
   };
 
-  const calculateTotal = () => {
-    return currentInvoiceItems.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
-  };
+  // Cálculos de Total e IVA
+  const calculateTotal = () => currentInvoiceItems.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+  const totalAmount = calculateTotal();
+  const baseAmount = totalAmount / 1.21;
+  const ivaAmount = totalAmount - baseAmount;
 
   const confirmPayment = async () => {
     if (currentInvoiceItems.some(i => i.desc.trim() === '')) {
@@ -123,7 +117,6 @@ export function BillingManager() {
     }
 
     setIsProcessingPdf(true);
-    const totalAmount = calculateTotal();
     const monthStr = currentMonth.toISOString().split('T')[0];
     const combinedDesc = currentInvoiceItems.map(i => i.desc).join(' + ');
 
@@ -189,13 +182,12 @@ export function BillingManager() {
               <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-gray-500 hover:text-white"/></button>
             </div>
             
-            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+            <div className="p-6 space-y-4 max-h-[50vh] overflow-y-auto">
               <p className="text-xs text-gray-400 uppercase font-bold tracking-widest mb-2">Conceptos de la factura</p>
               
               {currentInvoiceItems.map((item, index) => (
                 <div key={index} className="flex gap-2 items-center animate-in slide-in-from-top-2">
                   {item.isFixed ? (
-                    // LÍNEAS FIJAS BLOQUEADAS
                     <>
                       <div className="flex-1 bg-[#121212] border border-[#2a2a2a] rounded-xl p-3 flex items-center gap-2 cursor-not-allowed">
                         <Lock size={14} className="text-gray-600" />
@@ -204,10 +196,9 @@ export function BillingManager() {
                       <div className="w-32 bg-[#121212] border border-[#2a2a2a] rounded-xl p-3 text-right cursor-not-allowed">
                         <span className="text-sm text-gray-500 font-medium select-none">{Number(item.amount).toFixed(2)} €</span>
                       </div>
-                      <div className="w-[40px]"></div> {/* Espaciador para alinear con la papelera */}
+                      <div className="w-[40px]"></div>
                     </>
                   ) : (
-                    // LÍNEAS EXTRA EDITABLES
                     <>
                       <input 
                         type="text" 
@@ -236,10 +227,15 @@ export function BillingManager() {
               </button>
             </div>
 
+            {/* SECCIÓN DE TOTALES CON IVA */}
             <div className="p-6 bg-[#121212] border-t border-[#2a2a2a] flex justify-between items-center">
               <div>
-                <p className="text-xs text-gray-500 uppercase font-bold">Total Factura</p>
-                <p className="text-3xl font-black text-[#E31C25]">{calculateTotal().toFixed(2)} €</p>
+                <div className="flex gap-4 mb-1">
+                  <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">Base: <span className="text-gray-300">{baseAmount.toFixed(2)}€</span></p>
+                  <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">IVA (21%): <span className="text-gray-300">{ivaAmount.toFixed(2)}€</span></p>
+                </div>
+                <p className="text-xs text-gray-400 uppercase font-bold mb-1 mt-2">Total Factura</p>
+                <p className="text-3xl font-black text-[#E31C25]">{totalAmount.toFixed(2)} €</p>
               </div>
               <button 
                 onClick={confirmPayment} 
