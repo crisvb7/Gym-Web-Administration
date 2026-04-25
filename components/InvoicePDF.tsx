@@ -16,13 +16,21 @@ const styles = StyleSheet.create({
   invoiceTitle: { fontSize: 24, color: '#E31C25', fontWeight: 'bold', marginRight: 10 },
   badge: { backgroundColor: '#10b981', color: 'white', padding: '4px 8px', borderRadius: 4, fontSize: 10, fontWeight: 'bold' },
   metaText: { fontSize: 12, marginBottom: 4 },
+  
+  // Estilos de la nueva tabla de 4 columnas
   table: { width: '100%', marginBottom: 20 },
   tableHeader: { flexDirection: 'row', backgroundColor: '#000', padding: 10 },
-  tableHeaderCol1: { width: '70%', color: '#fff', fontSize: 11, fontWeight: 'bold' },
-  tableHeaderCol2: { width: '30%', color: '#fff', fontSize: 11, fontWeight: 'bold', textAlign: 'right' },
-  tableRow: { flexDirection: 'row', borderBottom: '1px solid #ccc', padding: '12px 10px' },
-  tableCol1: { width: '70%', fontSize: 11 },
-  tableCol2: { width: '30%', fontSize: 11, textAlign: 'right', fontWeight: 'bold' },
+  tableHeaderCol1: { width: '40%', color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  tableHeaderCol2: { width: '20%', color: '#fff', fontSize: 10, fontWeight: 'bold', textAlign: 'right' },
+  tableHeaderCol3: { width: '20%', color: '#fff', fontSize: 10, fontWeight: 'bold', textAlign: 'right' },
+  tableHeaderCol4: { width: '20%', color: '#fff', fontSize: 10, fontWeight: 'bold', textAlign: 'right' },
+  
+  tableRow: { flexDirection: 'row', borderBottom: '1px solid #ccc', padding: '12px 10px', alignItems: 'center' },
+  tableCol1: { width: '40%', fontSize: 11, color: '#3f3f46' },
+  tableCol2: { width: '20%', fontSize: 11, textAlign: 'right', color: '#52525b' },
+  tableCol3: { width: '20%', fontSize: 11, textAlign: 'right', color: '#52525b' },
+  tableCol4: { width: '20%', fontSize: 11, textAlign: 'right', fontWeight: 'bold', color: '#18181b' },
+  
   summaryContainer: { alignItems: 'flex-end', marginTop: 10, marginBottom: 40 },
   summaryRow: { flexDirection: 'row', paddingVertical: 6, alignItems: 'center' },
   summaryLabel: { fontSize: 11, color: '#71717a', width: 120, textAlign: 'right', paddingRight: 15, fontWeight: 'bold' },
@@ -37,14 +45,16 @@ export const InvoicePDF = ({ client, invoice, monthLabel, items }: any) => {
   const formattedDate = new Date(invoice.payment_date || new Date()).toLocaleDateString('es-ES');
   const invoiceNumber = invoice.id.split('-')[0].toUpperCase();
 
-  // Cálculos de IVA (Desglosado desde el precio final)
+  // Cálculos totales para el cuadro resumen final
   const totalAmount = items.reduce((acc: number, curr: any) => acc + (parseFloat(curr.amount) || 0), 0);
-  const baseAmount = totalAmount / 1.21;
-  const ivaAmount = totalAmount - baseAmount;
+  const totalBaseAmount = totalAmount / 1.21;
+  const totalIvaAmount = totalAmount - totalBaseAmount;
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
+        
+        {/* Cabecera */}
         <View style={styles.header}>
           <Image src="/logo.png" style={styles.logo} />
           <View style={styles.companyInfo}>
@@ -54,6 +64,7 @@ export const InvoicePDF = ({ client, invoice, monthLabel, items }: any) => {
           </View>
         </View>
 
+        {/* Datos Cliente y Factura */}
         <View style={styles.billToContainer}>
           <View style={styles.clientBox}>
             <Text style={styles.clientLabel}>Facturado a:</Text>
@@ -69,28 +80,42 @@ export const InvoicePDF = ({ client, invoice, monthLabel, items }: any) => {
           </View>
         </View>
 
+        {/* TABLA DE CONCEPTOS DESGLOSADA LÍNEA POR LÍNEA */}
         <View style={styles.table}>
           <View style={styles.tableHeader}>
             <Text style={styles.tableHeaderCol1}>CONCEPTO</Text>
-            <Text style={styles.tableHeaderCol2}>IMPORTE (IVA inc.)</Text>
+            <Text style={styles.tableHeaderCol2}>BASE IMP.</Text>
+            <Text style={styles.tableHeaderCol3}>IVA (21%)</Text>
+            <Text style={styles.tableHeaderCol4}>TOTAL</Text>
           </View>
-          {items.map((item: any, index: number) => (
-            <View style={styles.tableRow} key={index}>
-              <Text style={styles.tableCol1}>{item.desc} ({monthLabel})</Text>
-              <Text style={styles.tableCol2}>{Number(item.amount).toFixed(2)} €</Text>
-            </View>
-          ))}
+          
+          {items.map((item: any, index: number) => {
+            // Cálculos individuales para esta fila
+            const itemTotal = parseFloat(item.amount) || 0;
+            const itemBase = itemTotal / 1.21;
+            const itemIva = itemTotal - itemBase;
+
+            return (
+              <View style={styles.tableRow} key={index}>
+                {/* Añadimos el mes al concepto de forma elegante */}
+                <Text style={styles.tableCol1}>{item.desc} ({monthLabel})</Text>
+                <Text style={styles.tableCol2}>{itemBase.toFixed(2)} €</Text>
+                <Text style={styles.tableCol3}>{itemIva.toFixed(2)} €</Text>
+                <Text style={styles.tableCol4}>{itemTotal.toFixed(2)} €</Text>
+              </View>
+            );
+          })}
         </View>
 
-        {/* --- DESGLOSE DE IMPUESTOS --- */}
+        {/* CUADRO RESUMEN TOTAL DESGLOSADO */}
         <View style={styles.summaryContainer}>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Base Imponible:</Text>
-            <Text style={styles.summaryValue}>{baseAmount.toFixed(2)} €</Text>
+            <Text style={styles.summaryValue}>{totalBaseAmount.toFixed(2)} €</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>IVA (21%):</Text>
-            <Text style={styles.summaryValue}>{ivaAmount.toFixed(2)} €</Text>
+            <Text style={styles.summaryValue}>{totalIvaAmount.toFixed(2)} €</Text>
           </View>
           <View style={styles.totalBox}>
             <Text style={styles.totalLabel}>TOTAL FACTURA</Text>
@@ -98,10 +123,12 @@ export const InvoicePDF = ({ client, invoice, monthLabel, items }: any) => {
           </View>
         </View>
 
+        {/* Footer */}
         <View style={styles.footer}>
           <Text style={{marginBottom: 4}}>Este documento es un justificante de pago válido.</Text>
           <Text>Gracias por confiar en Daniel Miranda - Expertos en Movimiento.</Text>
         </View>
+
       </Page>
     </Document>
   );

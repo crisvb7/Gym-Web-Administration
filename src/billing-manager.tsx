@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, Loader2, Receipt, FileText, Settings, Check, X, Plus, Trash2, Lock } from "lucide-react";
+import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, Loader2, Receipt, FileText, Settings, Check, X, Plus, Trash2, Lock, Download } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDF } from '../components/InvoicePDF';
+
 
 export function BillingManager() {
   const [clients, setClients] = useState<any[]>([]);
@@ -157,7 +158,36 @@ export function BillingManager() {
   };
 
   // --- OTRAS FUNCIONES ---
-  const handlePrintInvoice = (invoice: any) => invoice.pdf_url && window.open(invoice.pdf_url, '_blank');
+  const handleDownloadInvoice = async (invoice: any) => {
+    if (!invoice.pdf_url) return;
+
+    try {
+      // 1. Fabricamos el nombre elegante (Ej: Factura_FAC-A1B2C.pdf)
+      const invoiceNumber = invoice.id.split('-')[0].toUpperCase();
+      const fileName = `Factura_FAC-${invoiceNumber}.pdf`;
+
+      // 2. Descargamos el archivo temporalmente en la memoria del navegador
+      const response = await fetch(invoice.pdf_url);
+      const blob = await response.blob();
+
+      // 3. Creamos un enlace "fantasma" para forzar la descarga con nuestro nombre
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      
+      // 4. Hacemos clic "invisible" y limpiamos
+      link.click();
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+    } catch (error) {
+      console.error("Error al descargar:", error);
+      // Fallback de seguridad: si el navegador bloquea la descarga, lo abre en otra pestaña como antes
+      window.open(invoice.pdf_url, '_blank');
+    }
+  };
   const deleteInvoice = async (invoice: any) => {
     if(confirm("¿Anular pago y borrar factura?")) {
       await supabase.from('invoices').delete().eq('id', invoice.id);
@@ -343,7 +373,10 @@ export function BillingManager() {
                   <div className="flex justify-end gap-2">
                     {data.invoice ? (
                       <>
-                        <button onClick={() => handlePrintInvoice(data.invoice)} className="p-2 bg-[#2a2a2a] text-gray-400 hover:text-white rounded-xl"><FileText size={18}/></button>
+                        {/* BOTÓN ACTUALIZADO PARA DESCARGAR CON NOMBRE FORMATEADO */}
+                        <button onClick={() => handleDownloadInvoice(data.invoice)} className="p-2 bg-[#2a2a2a] text-gray-400 hover:text-[#10b981] rounded-xl transition-colors" title="Descargar Factura PDF">
+                          <Download size={18} />
+                        </button>
                         <button onClick={() => deleteInvoice(data.invoice)} className="px-4 py-2 bg-[#121212] text-red-500 border border-[#2a2a2a] rounded-xl text-xs font-bold hover:bg-red-500/10">ANULAR</button>
                       </>
                     ) : (
