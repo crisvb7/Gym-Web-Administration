@@ -59,7 +59,7 @@ export const InvoicePDF = ({ client, invoice, monthLabel, items }: any) => {
           <Image src="/logo.png" style={styles.logo} />
           <View style={styles.companyInfo}>
             <Text style={styles.boldText}>Daniel Miranda - Expertos en Movimiento</Text>
-            <Text>CIF: 12345678Z | Oviedo</Text>
+            <Text>CIF: 71729852M | Oviedo</Text>
             <Text>danimirandatrainer@gmail.com</Text>
           </View>
         </View>
