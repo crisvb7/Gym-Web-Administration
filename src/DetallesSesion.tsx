@@ -102,6 +102,14 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
     e.preventDefault();
     if (!selectedUserId) return alert("Selecciona un atleta primero.");
     
+    // VERIFICACIÓN MODO DIOS ADMIN
+    const activeClients = bookedClients.filter(b => b.status === 'ACTIVE');
+    if (activeClients.length >= sesion.max_capacity) {
+      if (!window.confirm("⚠️ La clase ha alcanzado su aforo máximo. ¿Quieres forzar la inscripción y crear una plaza extra (Sobreaforo)?")) {
+        return; // Si dice que no, cancelamos. Si dice que sí, continúa y lo inscribe a la fuerza.
+      }
+    }
+
     setIsAddingUser(true);
     try {
       const assignedBookingType = sesion.access_type === 'TARIFF' ? 'FIXED' : 'NORMAL';
@@ -197,8 +205,9 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
           
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-white">Atletas Apuntados</h3>
-            <span className={`text-xs font-bold px-2 py-1 rounded-full ${activeClients.length >= sesion.max_capacity ? 'bg-red-500/10 text-red-500' : 'bg-[#E31C25]/10 text-[#E31C25]'}`}>
-              {activeClients.length} / {sesion.max_capacity}
+            {/* Si es TARIFA, mostramos visualmente que hay un hueco extra para tokens */}
+            <span className={`text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 ${activeClients.length > sesion.max_capacity ? 'bg-red-500/10 text-red-500' : 'bg-[#E31C25]/10 text-[#E31C25]'}`}>
+              {activeClients.length} / {sesion.max_capacity} {sesion.access_type === 'TARIFF' && <span className="text-emerald-500 font-bold">(+1 Token)</span>}
             </span>
           </div>
 

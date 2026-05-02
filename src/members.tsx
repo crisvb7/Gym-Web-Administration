@@ -26,7 +26,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
   // ESTADOS PARA TARIFA
   const [tariffAthlete, setTariffAthlete] = useState<any>(null);
-  const [rateDays, setRateDays] = useState<number>(0); // Ahora empieza en 0
+  const [rateDays, setRateDays] = useState<number>(0); 
   const [fixedDays, setFixedDays] = useState<number[]>([]);
   const [isSavingTariff, setIsSavingTariff] = useState(false);
 
@@ -91,7 +91,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
     else { setShowEditModal(false); fetchMembers(); }
   };
 
-  // --- LÓGICA: GUARDAR TARIFA E INSCRIBIR/CANCELAR MASIVAMENTE ---
+  // --- LÓGICA: GUARDAR TARIFA E INSCRIBIR MASIVAMENTE HACIA EL FUTURO ---
   const handleSaveTariff = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingTariff(true);
@@ -100,46 +100,23 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
       const now = new Date().toISOString();
 
       if (rateDays === 0) {
-        // --- 1. LÓGICA DE QUITAR TARIFA (CANCELAR) ---
-        // Actualizamos el perfil
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({ rate_days: 0, fixed_days: [] })
-          .eq('id', tariffAthlete.id);
+        const { error: profileError } = await supabase.from('profiles').update({ rate_days: 0, fixed_days: [] }).eq('id', tariffAthlete.id);
         if (profileError) throw profileError;
 
-        // Buscamos todas las clases futuras para cancelar sus reservas fijas
-        const { data: futureClasses } = await supabase
-          .from('classes')
-          .select('id')
-          .gte('start_time', now);
-
+        const { data: futureClasses } = await supabase.from('classes').select('id').gte('start_time', now);
         if (futureClasses && futureClasses.length > 0) {
           const classIds = futureClasses.map(c => c.id);
-          // Cancelamos todas sus reservas de tipo FIXED en el futuro
-          await supabase
-            .from('class_bookings')
-            .update({ status: 'CANCELLED' })
-            .eq('user_id', tariffAthlete.id)
-            .eq('booking_type', 'FIXED')
-            .eq('status', 'ACTIVE')
-            .in('class_id', classIds);
+          await supabase.from('class_bookings').update({ status: 'CANCELLED' }).eq('user_id', tariffAthlete.id).eq('booking_type', 'FIXED').eq('status', 'ACTIVE').in('class_id', classIds);
         }
-
         alert(`Se ha eliminado la tarifa de ${tariffAthlete.first_name}. Se han cancelado y liberado sus clases fijas futuras.`);
 
       } else {
-        // --- 2. LÓGICA DE ASIGNAR TARIFA (INSCRIBIR) ---
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({ rate_days: rateDays, fixed_days: fixedDays })
-          .eq('id', tariffAthlete.id);
-        
+        const { error: profileError } = await supabase.from('profiles').update({ rate_days: rateDays, fixed_days: fixedDays }).eq('id', tariffAthlete.id);
         if (profileError) throw profileError;
 
         const { data: futureClasses, error: classesError } = await supabase
           .from('classes')
-          .select('id, start_time, max_capacity')
+          .select('id, start_time, max_capacity, class_bookings (id, status)')
           .eq('access_type', 'TARIFF')
           .gte('start_time', now);
         
@@ -151,29 +128,26 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
         }) || [];
 
         let successfullyBookedCount = 0;
+        let forcedOverbookCount = 0; // Contador de veces que el Admin fuerza el aforo
 
         if (classesToBook.length > 0) {
           const classIds = classesToBook.map(c => c.id);
-          const { data: existingBookings } = await supabase
-            .from('class_bookings')
-            .select('class_id, status, id')
-            .eq('user_id', tariffAthlete.id)
-            .in('class_id', classIds);
+          const { data: existingBookings } = await supabase.from('class_bookings').select('class_id, status, id').eq('user_id', tariffAthlete.id).in('class_id', classIds);
 
           const newInserts = [];
           const reactivations = [];
 
           for (const cls of classesToBook) {
             const existing = existingBookings?.find(b => b.class_id === cls.id);
+            const activeCount = cls.class_bookings?.filter((b: any) => b.status === 'ACTIVE').length || 0;
+
+            // Si está llena, sumamos al contador, pero NO lo bloqueamos (Modo Admin)
+            if (activeCount >= cls.max_capacity) forcedOverbookCount++;
+
             if (existing) {
               if (existing.status === 'CANCELLED') reactivations.push(existing.id);
             } else {
-              newInserts.push({
-                class_id: cls.id,
-                user_id: tariffAthlete.id,
-                booking_type: 'FIXED',
-                status: 'ACTIVE'
-              });
+              newInserts.push({ class_id: cls.id, user_id: tariffAthlete.id, booking_type: 'FIXED', status: 'ACTIVE' });
             }
           }
 
@@ -183,25 +157,20 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
           }
 
           if (reactivations.length > 0) {
-            const { error: updateError } = await supabase
-              .from('class_bookings')
-              .update({ status: 'ACTIVE', booking_type: 'FIXED' })
-              .in('id', reactivations);
+            const { error: updateError } = await supabase.from('class_bookings').update({ status: 'ACTIVE', booking_type: 'FIXED' }).in('id', reactivations);
             if (!updateError) successfullyBookedCount += reactivations.length;
           }
         }
 
-        alert(`Tarifa asignada correctamente.\nSe ha inscrito automáticamente a ${tariffAthlete.first_name} en ${successfullyBookedCount} clases fijas a futuro.`);
+        let finalMessage = `¡Todo listo!\nSe ha guardado la tarifa para ${tariffAthlete.first_name} y se ha inscrito en ${successfullyBookedCount} clases futuras.`;
+        if (forcedOverbookCount > 0) finalMessage += `\n\n⚠️ NOTA: Se ha forzado la plaza y superado el aforo máximo en ${forcedOverbookCount} de estas clases.`;
+        alert(finalMessage);
       }
 
       setShowTariffModal(false);
       fetchMembers();
-
-    } catch (error: any) {
-      alert("Error al guardar la tarifa: " + error.message);
-    } finally {
-      setIsSavingTariff(false);
-    }
+    } catch (error: any) { alert("Error al guardar la tarifa: " + error.message); } 
+    finally { setIsSavingTariff(false); }
   };
 
   const toggleDay = (dayNum: number) => {
@@ -216,7 +185,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
     }
   };
 
-  // --- RESTO DE FUNCIONES (Kcal, Delete, Reset, Workouts) ---
   const handleSaveKcal = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingKcal(true);
@@ -368,7 +336,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                             <button 
                               onClick={() => { 
                                 setTariffAthlete(member); 
-                                setRateDays(member.rate_days || 0); // Empieza en lo que tenga, o 0
+                                setRateDays(member.rate_days || 0); 
                                 setFixedDays(member.fixed_days || []);
                                 setShowTariffModal(true); 
                                 setOpenDropdownId(null); 
@@ -437,7 +405,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
             <form onSubmit={handleSaveTariff} className="space-y-6">
               <div>
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 block">Días por Semana (Tarifa)</label>
-                {/* Cuadrícula de 5 columnas para incluir "Sin Tarifa" */}
                 <div className="grid grid-cols-5 gap-2">
                   <button
                     type="button"
@@ -458,7 +425,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                 </div>
               </div>
 
-              {/* Contenedor de días: se bloquea si rateDays === 0 */}
               <div style={{ opacity: rateDays === 0 ? 0.3 : 1, pointerEvents: rateDays === 0 ? 'none' : 'auto' }}>
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 block flex items-center justify-between">
                   <span>Selección de Días</span>
