@@ -22,6 +22,7 @@ export function ScheduleManager() {
   const [maxCapacity, setMaxCapacity] = useState('20');
   const [location, setLocation] = useState('Zona Principal');
   const [intensityBadge, setIntensityBadge] = useState('Media');
+  const [accessType, setAccessType] = useState('TARIFF');
 
   const [selectedClass, setSelectedClass] = useState<any>(null);
 
@@ -78,6 +79,7 @@ export function ScheduleManager() {
     setEditingClassId(null);
     setTitle(''); setTrainer(''); setDate(''); setTime('08:00');
     setDuration('60'); setMaxCapacity('20'); setLocation('Zona Principal'); setIntensityBadge('Media');
+    setAccessType('TARIFF');
   };
 
   const handleEditClick = (cls: any, e: React.MouseEvent) => {
@@ -95,6 +97,7 @@ export function ScheduleManager() {
     setMaxCapacity(cls.max_capacity.toString());
     setLocation(cls.location || 'Zona Principal');
     setIntensityBadge(cls.intensity_badge || 'Media');
+    setAccessType(cls.access_type || 'TARIFF');
 
     setEditingClassId(cls.id);
     setIsFormModalOpen(true);
@@ -126,7 +129,8 @@ export function ScheduleManager() {
         start_time: startDateTime.toISOString(),
         end_time: endDateTime.toISOString(),
         max_capacity: parseInt(maxCapacity),
-        location, intensity_badge: intensityBadge,
+        location, intensity_badge: intensityBadge, 
+        access_type: accessType
       };
 
       if (editingClassId) {
@@ -451,7 +455,8 @@ export function ScheduleManager() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              {/* AQUÍ ESTÁ EL CAMBIO VISUAL: Cambiado a grid-cols-2 para acomodar los 4 elementos */}
+              <div className="grid grid-cols-2 gap-4">
                  <div>
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Capacidad</label>
                   <input type="number" required min="1" value={maxCapacity} onChange={e => setMaxCapacity(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" />
@@ -462,6 +467,13 @@ export function ScheduleManager() {
                     <option value="Baja">Baja</option>
                     <option value="Media">Media</option>
                     <option value="Alta">Alta</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Tipo de Acceso</label>
+                  <select value={accessType} onChange={e => setAccessType(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none appearance-none">
+                    <option value="TARIFF">Exclusiva Tarifa (Fija)</option>
+                    <option value="NORMAL">Clientes Normales / Sueltos</option>
                   </select>
                 </div>
                 <div>
