@@ -5,8 +5,8 @@ import {
   Calendar, 
   Apple, 
   Dumbbell,
-  DollarSign, // <-- Añadido el icono para la facturación
-  // Settings,
+  DollarSign,
+  Zap, // <-- Importamos el icono para el generador
   LogOut,
   Loader2,
   Menu, 
@@ -20,13 +20,14 @@ import { MembersPage } from "./members";
 import { ScheduleManager } from "./schedule-manager";
 import { NutritionManager } from "./nutrition-manager";
 import { WorkoutsPage } from "./workouts";
-// import { SettingsPage } from "./settings";
 import { NutritionForm } from "./components/nutrition-form";
 
 // Importamos las pantallas de seguridad
 import { SetPasswordPage } from "./SetPassword";
 import { LoginPage } from "./login";
 import { BillingManager } from './billing-manager';
+import { TariffGenerator } from './TariffGenerator'; // <-- Importamos el nuevo componente
+
 
 export default function App() {
   // --- ESTADO PARA EL MENÚ EN MÓVIL ---
@@ -114,6 +115,7 @@ export default function App() {
       case 'dashboard': return <DashboardOverview />;
       case 'members': return <MembersPage onSelectMember={(u) => setSelectedUser(u)} />;
       case 'schedule': return <ScheduleManager />;
+      case 'tariff-generator': return <TariffGenerator />; // <-- Añadimos el renderizado del componente
       case 'nutrition': return <NutritionManager />;
       case 'workouts': return <WorkoutsPage />;
       case 'billing': return <BillingManager />; 
@@ -125,6 +127,7 @@ export default function App() {
     { id: 'dashboard', label: 'Panel de Control', icon: LayoutDashboard },
     { id: 'members', label: 'Clientes', icon: Users },
     { id: 'schedule', label: 'Horarios', icon: Calendar },
+    { id: 'tariff-generator', label: 'Generador Tarifas', icon: Zap }, // <-- Añadido al menú visual
     { id: 'nutrition', label: 'Nutrición', icon: Apple },
     { id: 'workouts', label: 'Entrenamientos', icon: Dumbbell },
     { id: 'billing', label: 'Facturación', icon: DollarSign }, 
