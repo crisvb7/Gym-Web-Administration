@@ -19,15 +19,45 @@ export function TariffGenerator() {
   const [maxCapacity, setMaxCapacity] = useState('20');
   const [location, setLocation] = useState('Box Principal');
   const [intensityBadge, setIntensityBadge] = useState('Alta');
+  const [discipline, setDiscipline] = useState(''); // Inicializamos vacío
   
-  // Días de la semana a generar (Por defecto de Lunes a Viernes)
-  // JS getDay(): 1=Lun, 2=Mar, 3=Mie, 4=Jue, 5=Vie, 6=Sab, 0=Dom
+  // Lista de disciplinas cargadas desde Supabase
+  const [disciplinesList, setDisciplinesList] = useState<any[]>([]);
+
+  // Días de la semana a generar
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
 
   // Estados de carga y feedback
   const [isGenerating, setIsGenerating] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | null, message: string }>({ type: null, message: '' });
   const [stats, setStats] = useState({ classesCreated: 0, autoEnrollments: 0 });
+
+  // --- CARGAR DISCIPLINAS AL MONTAR EL COMPONENTE ---
+  useEffect(() => {
+    const fetchDisciplines = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('disciplines')
+          .select('name')
+          .order('name');
+        
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          setDisciplinesList(data);
+          setDiscipline(data[0].name); // Selecciona la primera por defecto
+        } else {
+          // Fallback por si la tabla está vacía
+          setDisciplinesList([{ name: 'CrossFit' }]);
+          setDiscipline('CrossFit');
+        }
+      } catch (err) {
+        console.error("Error al cargar disciplinas:", err);
+      }
+    };
+
+    fetchDisciplines();
+  }, []);
 
   const toggleDay = (dayNum: number) => {
     if (selectedDays.includes(dayNum)) {
@@ -40,13 +70,13 @@ export function TariffGenerator() {
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedDays.length === 0) return alert("Debes seleccionar al menos un día de la semana.");
+    if (!discipline) return alert("Debes seleccionar una disciplina.");
 
     setIsGenerating(true);
     setFeedback({ type: null, message: '' });
     setStats({ classesCreated: 0, autoEnrollments: 0 });
 
     try {
-      // 1. Calcular todos los días del mes elegido que coincidan con los días de la semana marcados
       const datesToGenerate = [];
       const dateCursor = new Date(selectedYear, selectedMonth, 1);
       
@@ -59,7 +89,6 @@ export function TariffGenerator() {
 
       if (datesToGenerate.length === 0) throw new Error("No hay días coincidentes en este mes.");
 
-      // 2. Preparar el array de clases a insertar
       const [hours, minutes] = time.split(':').map(Number);
       const classesToInsert = datesToGenerate.map(date => {
         const startDateTime = new Date(date);
@@ -75,11 +104,11 @@ export function TariffGenerator() {
           max_capacity: parseInt(maxCapacity),
           location,
           intensity_badge: intensityBadge,
-          access_type: 'TARIFF' // Fundamental: Las marcamos como tarifa
+          access_type: 'TARIFF', 
+          discipline: discipline // USA LA DISCIPLINA CORRECTA
         };
       });
 
-      // 3. Insertar las clases en Supabase de golpe
       const { data: insertedClasses, error: insertError } = await supabase
         .from('classes')
         .insert(classesToInsert)
@@ -88,11 +117,10 @@ export function TariffGenerator() {
       if (insertError) throw insertError;
       if (!insertedClasses) throw new Error("Error al recuperar las clases creadas.");
 
-      // 4. EL TRUCO FINAL: Matricular automáticamente a los clientes con tarifa
       const { data: usersWithTariff, error: usersError } = await supabase
         .from('profiles')
         .select('id, fixed_days')
-        .gt('rate_days', 0); // Solo traemos a los que pagan tarifa
+        .gt('rate_days', 0);
 
       if (usersError) throw usersError;
 
@@ -103,7 +131,6 @@ export function TariffGenerator() {
           const classDayOfWeek = new Date(cls.start_time).getDay();
           
           usersWithTariff.forEach(user => {
-            // Si el cliente tiene este día configurado en su tarifa, lo apuntamos
             if (user.fixed_days && user.fixed_days.includes(classDayOfWeek)) {
               bookingsToInsert.push({
                 class_id: cls.id,
@@ -115,17 +142,14 @@ export function TariffGenerator() {
           });
         });
 
-        // Insertar matriculaciones masivas
         if (bookingsToInsert.length > 0) {
           const { error: bookingsError } = await supabase
             .from('class_bookings')
             .insert(bookingsToInsert);
-          
           if (bookingsError) throw bookingsError;
         }
       }
 
-      // Éxito
       setStats({ classesCreated: insertedClasses.length, autoEnrollments: bookingsToInsert.length });
       setFeedback({ type: 'success', message: '¡Generación completada con éxito!' });
 
@@ -136,10 +160,7 @@ export function TariffGenerator() {
     }
   };
 
-  const months = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-  ];
+  const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-4xl mx-auto">
@@ -183,7 +204,6 @@ export function TariffGenerator() {
 
         <form onSubmit={handleGenerate} className={`space-y-8 ${feedback.type === 'success' ? 'hidden' : ''}`}>
           
-          {/* SECCIÓN 1: FECHAS Y DÍAS */}
           <div className="space-y-4">
             <h2 className="text-sm font-bold text-[#E31C25] uppercase tracking-widest flex items-center gap-2">
               <CalendarRange size={16} /> 1. Cuándo
@@ -219,7 +239,6 @@ export function TariffGenerator() {
             </div>
           </div>
 
-          {/* SECCIÓN 2: DATOS DE LA CLASE */}
           <div className="space-y-4">
             <h2 className="text-sm font-bold text-[#E31C25] uppercase tracking-widest flex items-center gap-2">
               <Dumbbell size={16} /> 2. Qué se imparte
@@ -237,11 +256,24 @@ export function TariffGenerator() {
                 <div><label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Intensidad</label><select value={intensityBadge} onChange={e => setIntensityBadge(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none appearance-none"><option value="Media">Media</option><option value="Alta">Alta</option></select></div>
               </div>
               
-              <div><label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Ubicación</label><input required value={location} onChange={e => setLocation(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" /></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Disciplina (Categoría)</label>
+                  <select required value={discipline} onChange={e => setDiscipline(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none appearance-none font-bold">
+                    {/* MOSTRAMOS LA LISTA REAL CARGADA DE SUPABASE */}
+                    {disciplinesList.map(d => (
+                      <option key={d.name} value={d.name}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Ubicación</label>
+                  <input required value={location} onChange={e => setLocation(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" />
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* BANNER INFORMATIVO */}
           <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl flex gap-3 text-blue-400 text-sm">
             <Info className="shrink-0 mt-0.5" size={18} />
             <p>Al hacer clic en el botón inferior, se crearán estas clases y <strong>se inscribirá automáticamente</strong> a todos los clientes que tengan su tarifa configurada en los días correspondientes.</p>

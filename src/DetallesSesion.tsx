@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, MapPin, Loader2, Trash2, UserPlus, ShieldAlert } from 'lucide-react';
+import { X, Users, MapPin, Loader2, Trash2, UserPlus, ShieldAlert, Dumbbell } from 'lucide-react';
 import { supabase } from './lib/supabase';
+
+// Función para recrear el color transparente del badge de disciplina
+const hexToRgba = (hex: string, opacity: number) => {
+  if (!hex) return `rgba(227, 28, 37, ${opacity})`;
+  const r = parseInt(hex.slice(1, 3), 16) || 227;
+  const g = parseInt(hex.slice(3, 5), 16) || 28;
+  const b = parseInt(hex.slice(5, 7), 16) || 37;
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+};
 
 interface DetallesSesionProps {
   sesion: any | null;
@@ -11,6 +20,9 @@ interface DetallesSesionProps {
 export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: DetallesSesionProps) {
   const [bookedClients, setBookedClients] = useState<any[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(false);
+  
+  // Estado para guardar el color de la disciplina
+  const [disciplineColor, setDisciplineColor] = useState<string>('#E31C25');
 
   // Estados para la inscripción manual
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -35,6 +47,7 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
     if (!sesion) return;
     setLoadingBookings(true);
     try {
+      // Cargamos las reservas
       const { data, error } = await supabase
         .from('class_bookings')
         .select(`
@@ -54,6 +67,13 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
 
       if (error) throw error;
       setBookedClients(data || []);
+
+      // Cargamos el color de la disciplina de esta clase
+      if (sesion.discipline) {
+        const { data: dData } = await supabase.from('disciplines').select('color').eq('name', sesion.discipline).single();
+        if (dData) setDisciplineColor(dData.color);
+      }
+
     } catch (err) {
       console.error("Error cargando reservas:", err);
     } finally {
@@ -65,53 +85,42 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
     loadClassDetails();
   }, [sesion]);
 
-  // --- NUEVA FUNCIÓN: ELIMINAR ATLETA DE LA CLASE ---
   const handleRemoveUser = async (bookingId: string, clientName: string) => {
     if (!window.confirm(`¿Estás seguro de que quieres expulsar a ${clientName} de esta clase?`)) return;
 
     try {
-      // Usamos DELETE para borrar el registro por completo si el admin lo decide
       const { error } = await supabase.from('class_bookings').delete().eq('id', bookingId);
       if (error) throw error;
       
-      loadClassDetails(); // Recargar lista
+      loadClassDetails();
     } catch (error: any) {
       alert("Error al eliminar al atleta: " + error.message);
     }
   };
 
-  // Función para añadir usuario manualmente (Ajustada a la nueva lógica de clase)
   const handleAddUserManually = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return alert("Selecciona un atleta primero.");
     
     setIsAddingUser(true);
     try {
-      // El tipo de reserva lo dicta la propia clase (TARIFF = FIXED, NORMAL = NORMAL)
       const assignedBookingType = sesion.access_type === 'TARIFF' ? 'FIXED' : 'NORMAL';
-
       const existingBooking = bookedClients.find(b => b.profiles.id === selectedUserId);
       
       if (existingBooking) {
         if (existingBooking.status === 'ACTIVE') {
           throw new Error("Este atleta ya está apuntado a la clase.");
         } else {
-          // Reactivamos con el tipo de reserva que dicte la clase
-          const { error } = await supabase
-            .from('class_bookings')
-            .update({ status: 'ACTIVE', booking_type: assignedBookingType })
-            .eq('id', existingBooking.id);
+          const { error } = await supabase.from('class_bookings').update({ status: 'ACTIVE', booking_type: assignedBookingType }).eq('id', existingBooking.id);
           if (error) throw error;
         }
       } else {
-        const { error } = await supabase
-          .from('class_bookings')
-          .insert({
-            class_id: sesion.id,
-            user_id: selectedUserId,
-            booking_type: assignedBookingType,
-            status: 'ACTIVE'
-          });
+        const { error } = await supabase.from('class_bookings').insert({
+          class_id: sesion.id,
+          user_id: selectedUserId,
+          booking_type: assignedBookingType,
+          status: 'ACTIVE'
+        });
         if (error) throw error;
       }
 
@@ -131,29 +140,55 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+      {/* CAPA DE CIERRE AL CLICAR FUERA */}
+      <div className="absolute inset-0" onClick={onClose}></div>
+
+      {/* TARJETA CENTRAL */}
+      <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-md rounded-3xl overflow-hidden shadow-2xl animate-in slide-in-from-bottom-4 duration-300 relative z-10">
         
         {/* Cabecera del Modal */}
         <div className="bg-[#1a1a1a] p-6 border-b border-[#2a2a2a] relative">
-          <button onClick={onClose} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors bg-[#121212] p-1.5 rounded-full border border-[#2a2a2a]">
+          
+          {/* BOTÓN X CORREGIDO: Absoluto, arriba y a la derecha */}
+          <button 
+            onClick={onClose} 
+            className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors bg-[#121212] p-1.5 rounded-full border border-[#2a2a2a] z-20"
+          >
             <X size={20} />
           </button>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="bg-[#E31C25]/10 text-[#E31C25] text-xs font-bold px-2 py-1 rounded-md uppercase">
-              {new Date(sesion.start_time).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'short' })}
+          
+          {/* Fila de insignias SUPERIORES */}
+          <div className="flex items-center gap-2 mb-3 mr-10 flex-wrap">
+            <span className="bg-[#E31C25]/10 text-[#E31C25] text-[10px] font-bold px-2 py-1 rounded-md uppercase border border-[#E31C25]/20">
+              {new Date(sesion.start_time).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
             </span>
-            <span className="text-gray-400 text-xs font-bold">
+            <span className="text-gray-400 text-[10px] font-bold shrink-0 bg-[#2a2a2a] px-2 py-1 rounded-md">
               {new Date(sesion.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(sesion.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
-            {/* Badge de tipo de acceso */}
-            <span className={`text-[10px] font-bold px-2 py-1 rounded-md ml-auto border ${sesion.access_type === 'TARIFF' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
-              {sesion.access_type === 'TARIFF' ? 'SOLO TARIFA' : 'CLASE NORMAL'}
+            
+            {/* ETIQUETA DE TIPO DE ACCESO */}
+            <span className={`text-[10px] font-bold px-2 py-1 rounded-md border ${sesion.access_type === 'TARIFF' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
+              {sesion.access_type === 'TARIFF' ? 'SOLO TARIFA' : 'ACCESO LIBRE'}
+            </span>
+
+            {/* ETIQUETA DE CATEGORÍA (DISCIPLINA) SÚPER VISIBLE */}
+            <span 
+              className="text-[10px] font-bold px-2 py-1 rounded-md border flex items-center gap-1 uppercase"
+              style={{
+                backgroundColor: hexToRgba(disciplineColor, 0.1),
+                borderColor: hexToRgba(disciplineColor, 0.3),
+                color: disciplineColor
+              }}
+            >
+              <Dumbbell size={10} /> {sesion.discipline || 'CrossFit'}
             </span>
           </div>
-          <h2 className="text-2xl font-bold text-white">{sesion.title}</h2>
-          <div className="flex items-center gap-4 mt-4 text-sm text-gray-400">
-            <span className="flex items-center gap-1"><Users size={16} className="text-[#E31C25]" /> Coach: {sesion.trainer}</span>
-            <span className="flex items-center gap-1"><MapPin size={16} className="text-[#E31C25]" /> {sesion.location}</span>
+
+          <h2 className="text-2xl font-bold text-white mb-2 leading-tight pr-8">{sesion.title}</h2>
+          
+          <div className="flex flex-col gap-2 mt-3 text-sm text-gray-400 border-t border-[#2a2a2a] pt-3">
+            <span className="flex items-center gap-2"><Users size={16} className="text-[#E31C25]" /> Coach: <span className="text-white font-medium">{sesion.trainer}</span></span>
+            <span className="flex items-center gap-2"><MapPin size={16} className="text-[#E31C25]" /> Ubicación: <span className="text-white font-medium">{sesion.location}</span></span>
           </div>
         </div>
 
@@ -208,7 +243,7 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
                 {cancelledClients.map((booking) => (
                   <div key={booking.id} className="flex items-center gap-3 bg-transparent p-2 rounded-lg border border-[#2a2a2a] border-dashed">
                     <X className="text-gray-500 shrink-0" size={16} />
-                    <p className="text-sm text-gray-400 strike-through line-through">
+                    <p className="text-sm text-gray-400 strike-through line-through truncate">
                       {booking.profiles?.first_name} {booking.profiles?.last_name}
                     </p>
                   </div>
