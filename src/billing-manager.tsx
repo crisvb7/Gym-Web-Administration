@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, Loader2, Receipt, FileText, Settings, Check, X, Plus, Trash2, Lock, Download } from "lucide-react";
+import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, Loader2, Receipt, FileText, Settings, Check, X, Plus, Trash2, Lock, Download, Unlock } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDF } from '../components/InvoicePDF';
-
 
 export function BillingManager() {
   const [clients, setClients] = useState<any[]>([]);
@@ -38,7 +37,7 @@ export function BillingManager() {
     
     const { data: clientsData } = await supabase
       .from('profiles')
-      .select('id, first_name, last_name, fee, nutrition_fee')
+      .select('id, first_name, last_name, fee, nutrition_fee, payment_status')
       .eq('role', 'client')
       .order('first_name', { ascending: true });
     if (clientsData) setClients(clientsData);
@@ -76,6 +75,25 @@ export function BillingManager() {
     }
   };
 
+  // --- NUEVA FUNCIÓN: DESCONGELAR CUENTA ---
+  const handleDescongelarCuenta = async (userId: string, userName: string) => {
+    if (!window.confirm(`¿Confirmas que ${userName} ha abonado la cuota y quieres reactivar su cuenta?`)) return;
+    
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ payment_status: 'paid' })
+        .eq('id', userId);
+
+      if (error) throw error;
+      
+      alert(`✅ Cuenta de ${userName} reactivada correctamente.`);
+      fetchData(); 
+    } catch (error: any) {
+      alert("Error al reactivar la cuenta: " + error.message);
+    }
+  };
+
   // --- MODAL DE FACTURACIÓN DINÁMICA ---
   const openBillingModal = (client: any) => {
     setClientToBill(client);
@@ -105,7 +123,6 @@ export function BillingManager() {
     setCurrentInvoiceItems(newItems);
   };
 
-  // Cálculos de Total e IVA
   const calculateTotal = () => currentInvoiceItems.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
   const totalAmount = calculateTotal();
   const baseAmount = totalAmount / 1.21;
@@ -133,6 +150,9 @@ export function BillingManager() {
 
       if (insertError || !insertedData) throw insertError;
       const newInvoice = insertedData[0];
+
+      // Al cobrarle, desbloqueamos también la App
+      await supabase.from('profiles').update({ payment_status: 'paid' }).eq('id', clientToBill.id);
 
       const monthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
       const capitalizedMonthLabel = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
@@ -162,35 +182,33 @@ export function BillingManager() {
     if (!invoice.pdf_url) return;
 
     try {
-      // 1. Fabricamos el nombre elegante (Ej: Factura_FAC-A1B2C.pdf)
       const invoiceNumber = invoice.id.split('-')[0].toUpperCase();
       const fileName = `Factura_FAC-${invoiceNumber}.pdf`;
 
-      // 2. Descargamos el archivo temporalmente en la memoria del navegador
       const response = await fetch(invoice.pdf_url);
       const blob = await response.blob();
 
-      // 3. Creamos un enlace "fantasma" para forzar la descarga con nuestro nombre
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', fileName);
       document.body.appendChild(link);
       
-      // 4. Hacemos clic "invisible" y limpiamos
       link.click();
       link.parentNode?.removeChild(link);
       window.URL.revokeObjectURL(url);
       
     } catch (error) {
       console.error("Error al descargar:", error);
-      // Fallback de seguridad: si el navegador bloquea la descarga, lo abre en otra pestaña como antes
       window.open(invoice.pdf_url, '_blank');
     }
   };
+
   const deleteInvoice = async (invoice: any) => {
     if(confirm("¿Anular pago y borrar factura?")) {
       await supabase.from('invoices').delete().eq('id', invoice.id);
+      // Al anular, vuelve a estar pendiente de pago
+      await supabase.from('profiles').update({ payment_status: 'pending' }).eq('id', invoice.user_id);
       fetchData();
     }
   };
@@ -199,6 +217,7 @@ export function BillingManager() {
     .map(c => ({ ...c, invoice: invoices.find(inv => inv.user_id === c.id) }));
 
   const capitalizedMonthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase());
+  const currentDay = 10;
 
   return (
     <div className="space-y-6">
@@ -315,77 +334,98 @@ export function BillingManager() {
             </tr>
           </thead>
           <tbody className="divide-y divide-[#2a2a2a]">
-            {displayData.map((data) => (
-              <tr key={data.id} className="hover:bg-white/5 transition-colors">
-                
-                <td className="p-4 pl-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-[#121212] border border-[#2a2a2a] flex items-center justify-center font-bold text-[#E31C25] shrink-0">
-                      {data.first_name[0]}
+            {displayData.map((data) => {
+              const isPending = data.payment_status === 'pending' || !data.payment_status;
+              const isFrozen = isPending && currentDay >= 6;
+
+              return (
+                <tr key={data.id} className="hover:bg-white/5 transition-colors">
+                  
+                  <td className="p-4 pl-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-[#121212] border border-[#2a2a2a] flex items-center justify-center font-bold text-[#E31C25] shrink-0">
+                        {data.first_name[0]}
+                      </div>
+                      <span className="font-bold text-white block">{data.first_name} {data.last_name}</span>
                     </div>
-                    <span className="font-bold text-white block">{data.first_name} {data.last_name}</span>
-                  </div>
-                </td>
-                
-                <td className="p-4">
-                  {editingFeesId === data.id ? (
-                    <div className="flex items-center gap-3 bg-[#121212] p-2 rounded-xl border border-[#3f3f46] w-fit">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-gray-500 w-12 uppercase font-bold">Cuota:</span>
-                          <input type="number" className="w-16 bg-black border border-[#2a2a2a] rounded px-2 py-1 text-white text-xs outline-none focus:border-[#E31C25]" value={tempBaseFee} onChange={(e) => setTempBaseFee(e.target.value)} />
+                  </td>
+                  
+                  <td className="p-4">
+                    {editingFeesId === data.id ? (
+                      <div className="flex items-center gap-3 bg-[#121212] p-2 rounded-xl border border-[#3f3f46] w-fit">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-500 w-12 uppercase font-bold">Cuota:</span>
+                            <input type="number" className="w-16 bg-black border border-[#2a2a2a] rounded px-2 py-1 text-white text-xs outline-none focus:border-[#E31C25]" value={tempBaseFee} onChange={(e) => setTempBaseFee(e.target.value)} />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-500 w-12 uppercase font-bold">Nutri:</span>
+                            <input type="number" className="w-16 bg-black border border-[#2a2a2a] rounded px-2 py-1 text-white text-xs outline-none focus:border-[#E31C25]" value={tempNutriFee} onChange={(e) => setTempNutriFee(e.target.value)} />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-gray-500 w-12 uppercase font-bold">Nutri:</span>
-                          <input type="number" className="w-16 bg-black border border-[#2a2a2a] rounded px-2 py-1 text-white text-xs outline-none focus:border-[#E31C25]" value={tempNutriFee} onChange={(e) => setTempNutriFee(e.target.value)} />
+                        <div className="flex flex-col gap-1 border-l border-[#2a2a2a] pl-3">
+                          <button onClick={() => saveFeeConfig(data.id)} className="p-1 bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded transition-colors"><Check size={14} /></button>
+                          <button onClick={() => setEditingFeesId(null)} className="p-1 bg-red-500/20 text-red-500 hover:bg-red-500 hover:text-white rounded transition-colors"><X size={14} /></button>
                         </div>
                       </div>
-                      <div className="flex flex-col gap-1 border-l border-[#2a2a2a] pl-3">
-                        <button onClick={() => saveFeeConfig(data.id)} className="p-1 bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded transition-colors"><Check size={14} /></button>
-                        <button onClick={() => setEditingFeesId(null)} className="p-1 bg-red-500/20 text-red-500 hover:bg-red-500 hover:text-white rounded transition-colors"><X size={14} /></button>
+                    ) : (
+                      <div className="flex items-center gap-4 group/fees">
+                        <div className="text-xs text-gray-400">
+                          <p><strong className="text-gray-300">{data.fee || DEFAULT_FEE}€</strong> <span className="text-[10px]">BASE</span></p>
+                          {data.nutrition_fee > 0 && <p><strong className="text-gray-300">{data.nutrition_fee}€</strong> <span className="text-[10px]">NUTRI</span></p>}
+                        </div>
+                        {isAdmin && (
+                          <button 
+                            onClick={() => openFeeConfig(data)} 
+                            className="p-1.5 bg-[#2a2a2a] text-gray-400 hover:text-white rounded-lg opacity-0 group-hover/fees:opacity-100 transition-all flex items-center gap-1 text-[10px] font-bold"
+                          >
+                            <Settings size={12} /> CONFIGURAR
+                          </button>
+                        )}
                       </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-4 group/fees">
-                      <div className="text-xs text-gray-400">
-                        <p><strong className="text-gray-300">{data.fee || DEFAULT_FEE}€</strong> <span className="text-[10px]">BASE</span></p>
-                        {data.nutrition_fee > 0 && <p><strong className="text-gray-300">{data.nutrition_fee}€</strong> <span className="text-[10px]">NUTRI</span></p>}
-                      </div>
-                      {isAdmin && (
-                        <button 
-                          onClick={() => openFeeConfig(data)} 
-                          className="p-1.5 bg-[#2a2a2a] text-gray-400 hover:text-white rounded-lg opacity-0 group-hover/fees:opacity-100 transition-all flex items-center gap-1 text-[10px] font-bold"
-                        >
-                          <Settings size={12} /> CONFIGURAR
-                        </button>
+                    )}
+                  </td>
+
+                  <td className="p-4 text-center">
+                    {isFrozen ? (
+                      <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase bg-red-500/10 text-red-500 border border-red-500/20">
+                        CONGELADO
+                      </span>
+                    ) : (
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${data.invoice ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-800 text-gray-400'}`}>
+                        {data.invoice ? 'PAGADO' : 'PENDIENTE'}
+                      </span>
+                    )}
+                  </td>
+
+                  <td className="p-4 text-right pr-6">
+                    <div className="flex justify-end gap-2">
+                      {data.invoice ? (
+                        <>
+                          <button onClick={() => handleDownloadInvoice(data.invoice)} className="p-2 bg-[#2a2a2a] text-gray-400 hover:text-[#10b981] rounded-xl transition-colors" title="Descargar Factura PDF">
+                            <Download size={18} />
+                          </button>
+                          <button onClick={() => deleteInvoice(data.invoice)} className="px-4 py-2 bg-[#121212] text-red-500 border border-[#2a2a2a] rounded-xl text-xs font-bold hover:bg-red-500/10">ANULAR</button>
+                        </>
+                      ) : (
+                        <>
+                          {isFrozen && (
+                            <button 
+                              onClick={() => handleDescongelarCuenta(data.id, data.first_name)} 
+                              className="flex items-center gap-1.5 px-4 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl text-xs font-bold hover:bg-red-500 hover:text-white transition-colors"
+                              title="Permitir acceso a la App sin generar factura"
+                            >
+                              <Unlock size={14} /> DESCONGELAR
+                            </button>
+                          )}
+                          <button onClick={() => openBillingModal(data)} className="px-6 py-2 bg-[#E31C25] text-white rounded-xl text-xs font-bold hover:bg-[#A6151B] transition-all shadow-lg">MARCAR PAGADO</button>
+                        </>
                       )}
                     </div>
-                  )}
-                </td>
-
-                <td className="p-4 text-center">
-                  <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${data.invoice ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-800 text-gray-400'}`}>
-                    {data.invoice ? 'PAGADO' : 'PENDIENTE'}
-                  </span>
-                </td>
-
-                <td className="p-4 text-right pr-6">
-                  <div className="flex justify-end gap-2">
-                    {data.invoice ? (
-                      <>
-                        {/* BOTÓN ACTUALIZADO PARA DESCARGAR CON NOMBRE FORMATEADO */}
-                        <button onClick={() => handleDownloadInvoice(data.invoice)} className="p-2 bg-[#2a2a2a] text-gray-400 hover:text-[#10b981] rounded-xl transition-colors" title="Descargar Factura PDF">
-                          <Download size={18} />
-                        </button>
-                        <button onClick={() => deleteInvoice(data.invoice)} className="px-4 py-2 bg-[#121212] text-red-500 border border-[#2a2a2a] rounded-xl text-xs font-bold hover:bg-red-500/10">ANULAR</button>
-                      </>
-                    ) : (
-                      <button onClick={() => openBillingModal(data)} className="px-6 py-2 bg-[#E31C25] text-white rounded-xl text-xs font-bold hover:bg-[#A6151B] transition-all shadow-lg">MARCAR PAGADO</button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

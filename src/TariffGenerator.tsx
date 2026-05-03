@@ -150,6 +150,18 @@ export function TariffGenerator() {
         }
       }
 
+      // --- NUEVA LÓGICA: RESETEO MENSUAL DE PAGOS ---
+      // Al generar las clases del nuevo mes, ponemos a todos los clientes como "pendientes"
+      const { error: resetError } = await supabase
+        .from('profiles')
+        .update({ payment_status: 'pending' })
+        .eq('role', 'client'); // Solo afecta a los clientes, no al staff
+
+      if (resetError) {
+        console.error("Aviso: Las clases se crearon, pero hubo un error al resetear los pagos:", resetError);
+      }
+      // ----------------------------------------------
+
       setStats({ classesCreated: insertedClasses.length, autoEnrollments: bookingsToInsert.length });
       setFeedback({ type: 'success', message: '¡Generación completada con éxito!' });
 
@@ -276,7 +288,7 @@ export function TariffGenerator() {
 
           <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl flex gap-3 text-blue-400 text-sm">
             <Info className="shrink-0 mt-0.5" size={18} />
-            <p>Al hacer clic en el botón inferior, se crearán estas clases y <strong>se inscribirá automáticamente</strong> a todos los clientes que tengan su tarifa configurada en los días correspondientes.</p>
+            <p>Al hacer clic en el botón inferior, se crearán estas clases, <strong>se inscribirá automáticamente</strong> a todos los clientes con tarifa en los días correspondientes, y <strong>se cambiará su estado de pago a "Pendiente"</strong> para el nuevo mes.</p>
           </div>
 
           <button 
