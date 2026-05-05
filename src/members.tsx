@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Users, Apple, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck } from "lucide-react";
+import { Users, Apple, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck, FileSignature, CheckCircle } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) => void }) {
@@ -13,11 +13,13 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
   const [showWorkoutsModal, setShowWorkoutsModal] = useState(false);
   const [showKcalModal, setShowKcalModal] = useState(false);
   const [showTariffModal, setShowTariffModal] = useState(false); 
+  const [showContractViewModal, setShowContractViewModal] = useState(false); // NUEVO ESTADO MODAL CONTRATO
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   
   const [newAtleta, setNewAtleta] = useState({ first_name: '', last_name: '', email: '', role: 'client' });
   const [editAtleta, setEditAtleta] = useState<any>(null);
   const [viewingAthlete, setViewingAthlete] = useState<any>(null);
+  const [contractAthlete, setContractAthlete] = useState<any>(null); // NUEVO ESTADO ATLETA CONTRATO
   const [athleteWorkouts, setAthleteWorkouts] = useState<any[]>([]);
   
   const [kcalAthlete, setKcalAthlete] = useState<any>(null);
@@ -91,7 +93,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
     else { setShowEditModal(false); fetchMembers(); }
   };
 
-  // --- LÓGICA: GUARDAR TARIFA E INSCRIBIR MASIVAMENTE HACIA EL FUTURO ---
   const handleSaveTariff = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingTariff(true);
@@ -128,7 +129,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
         }) || [];
 
         let successfullyBookedCount = 0;
-        let forcedOverbookCount = 0; // Contador de veces que el Admin fuerza el aforo
+        let forcedOverbookCount = 0; 
 
         if (classesToBook.length > 0) {
           const classIds = classesToBook.map(c => c.id);
@@ -141,7 +142,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
             const existing = existingBookings?.find(b => b.class_id === cls.id);
             const activeCount = cls.class_bookings?.filter((b: any) => b.status === 'ACTIVE').length || 0;
 
-            // Si está llena, sumamos al contador, pero NO lo bloqueamos (Modo Admin)
             if (activeCount >= cls.max_capacity) forcedOverbookCount++;
 
             if (existing) {
@@ -265,7 +265,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
         </button>
       </div>
 
-      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl shadow-xl overflow-x-auto">
+      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl shadow-xl overflow-x-auto lg:overflow-visible min-h-[250px]">
         <table className="w-full text-left min-w-full">
           <thead className="bg-[#121212] border-b border-[#2a2a2a] text-gray-500 text-xs uppercase font-bold tracking-wider">
             <tr>
@@ -280,11 +280,17 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
               <tr><td colSpan={4} className="p-12 text-center text-[#E31C25] animate-pulse font-bold">Cargando base de datos...</td></tr>
             ) : displayedMembers.length === 0 ? (
               <tr><td colSpan={4} className="p-12 text-center text-gray-500">No hay usuarios registrados en esta categoría.</td></tr>
-            ) : displayedMembers.map((member) => (
+            ) : displayedMembers.map((member, index) => (
               <tr key={member.id} className="hover:bg-white/[0.02] transition-colors group">
                 <td className="p-3 md:p-5 flex items-center gap-3 md:gap-4">
-                  <div className="w-10 h-10 md:w-12 md:h-12 shrink-0 bg-[#121212] rounded-xl flex items-center justify-center text-[#E31C25] font-bold border border-[#2a2a2a] shadow-sm group-hover:border-[#E31C25]/30 transition-colors">
+                  <div className="w-10 h-10 md:w-12 md:h-12 shrink-0 bg-[#121212] rounded-xl flex items-center justify-center text-[#E31C25] font-bold border border-[#2a2a2a] shadow-sm group-hover:border-[#E31C25]/30 transition-colors relative">
                     {member.first_name?.[0] || 'U'}
+                    {/* Indicador de contrato firmado */}
+                    {member.contract_accepted && (
+                      <div className="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 shadow-lg" title="Contrato Firmado">
+                        <CheckCircle size={10} className="text-black" />
+                      </div>
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p className="font-bold text-white text-sm md:text-base truncate">{member.first_name} {member.last_name}</p>
@@ -329,10 +335,20 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                   {openDropdownId === member.id && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setOpenDropdownId(null)}></div>
-                      <div className="absolute right-4 md:right-8 top-10 md:top-12 w-48 md:w-56 bg-[#121212] border border-[#2a2a2a] rounded-xl shadow-2xl z-50 overflow-hidden text-left animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className={`absolute right-4 md:right-8 ${index >= displayedMembers.length - 2 && displayedMembers.length > 2 ? 'bottom-8 md:bottom-10 mb-2 slide-in-from-bottom-2' : 'top-10 md:top-12 slide-in-from-top-2'} w-48 md:w-56 bg-[#121212] border border-[#2a2a2a] rounded-xl shadow-2xl z-[9999] overflow-hidden text-left animate-in fade-in duration-200`}>
                         
                         {(member.role === 'client' || !member.role) && (
                           <>
+                            {/* NUEVO BOTÓN: VER CONTRATO (Solo sale si está firmado) */}
+                            {member.contract_accepted && (
+                              <button 
+                                onClick={() => { setContractAthlete(member); setShowContractViewModal(true); setOpenDropdownId(null); }}
+                                className="w-full px-4 py-3 text-sm text-emerald-400 hover:bg-emerald-500/10 flex items-center gap-3 transition-colors font-bold"
+                              >
+                                <FileSignature size={16} /> Ver Contrato
+                              </button>
+                            )}
+
                             <button 
                               onClick={() => { 
                                 setTariffAthlete(member); 
@@ -341,7 +357,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                                 setShowTariffModal(true); 
                                 setOpenDropdownId(null); 
                               }}
-                              className="w-full px-4 py-3 text-sm text-gray-300 hover:text-[#E31C25] hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors font-bold"
+                              className="w-full px-4 py-3 text-sm text-gray-300 hover:text-[#E31C25] hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors font-bold border-t border-[#2a2a2a]"
                             >
                               <CalendarCheck size={16} /> Gestión de Tarifa
                             </button>
@@ -388,6 +404,72 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
       </div>
 
       {/* --- MODALES --- */}
+
+      {/* NUEVO MODAL: VISOR DE CONTRATO FIRMADO */}
+      {showContractViewModal && contractAthlete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-2xl h-[85vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+            
+            <div className="p-6 bg-[#121212] border-b border-[#2a2a2a] flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <FileSignature className="text-emerald-500" size={24} />
+                <div>
+                  <h2 className="text-lg font-bold text-white leading-tight">Contrato de Conformidad</h2>
+                  <p className="text-sm text-gray-400">Atleta: {contractAthlete.first_name} {contractAthlete.last_name}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowContractViewModal(false)} className="text-gray-500 hover:text-white bg-[#1a1a1a] p-2 rounded-full transition-colors"><X size={20} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8">
+              <div className="prose prose-invert max-w-none">
+                <h3 className="text-white font-bold text-xl mb-6 text-center">Normativa del Centro Daniel Miranda | En Movimiento</h3>
+                
+                <p className="text-gray-300 mb-6 leading-relaxed text-justify">
+                  El usuario <strong>{contractAthlete.first_name} {contractAthlete.last_name}</strong> (con correo electrónico {contractAthlete.email}) declara haber leído, comprendido y aceptado las siguientes condiciones para la utilización de las instalaciones y de la aplicación móvil del centro.
+                </p>
+
+                <div className="space-y-6 text-gray-300 text-sm leading-relaxed text-justify">
+                  <div>
+                    <h4 className="text-white font-bold text-base mb-2">1. Pagos y Congelación de Cuenta</h4>
+                    <p>Las cuotas deben ser abonadas en los primeros 5 días del mes. En caso de impago, el día 6 la cuenta de la aplicación quedará automáticamente congelada, impidiendo el acceso a los entrenamientos y reservas hasta la regularización de la deuda.</p>
+                  </div>
+                  <div>
+                    <h4 className="text-white font-bold text-base mb-2">2. Fianza de Inscripción</h4>
+                    <p>El usuario abonará una fianza inicial según las condiciones establecidas por el centro deportivo. Dicha fianza estará sujeta a la política de devoluciones vigente y se empleará como garantía ante posibles impagos o daños en el material.</p>
+                  </div>
+                  <div>
+                    <h4 className="text-white font-bold text-base mb-2">3. Política de Cancelación</h4>
+                    <p>Las reservas de clases deben cancelarse con la antelación estipulada. Si el usuario acumula inasistencias reiteradas sin haber efectuado la cancelación previa, el sistema se reserva el derecho de bloquear temporalmente sus futuras reservas para asegurar el correcto flujo de aforo.</p>
+                  </div>
+                  <div>
+                    <h4 className="text-white font-bold text-base mb-2">4. Exención de Responsabilidad</h4>
+                    <p>El usuario declara de forma expresa encontrarse en condiciones físicas óptimas para la práctica deportiva y asume la total responsabilidad de cualquier lesión, accidente o percance de salud derivado del uso de las instalaciones, eximiendo a Daniel Miranda y a su equipo de cualquier responsabilidad legal.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 bg-[#0f172a]/50 border-t border-slate-800 shrink-0">
+              <div className="flex items-center gap-4 bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl">
+                <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center shrink-0">
+                  <CheckCircle className="text-emerald-500" size={20} />
+                </div>
+                <div>
+                  <p className="text-emerald-400 font-bold text-sm uppercase tracking-wider">Firma Digital Registrada</p>
+                  <p className="text-gray-400 text-sm mt-0.5">
+                    Aceptado electrónicamente el: <span className="text-white font-medium">
+                      {contractAthlete.contract_accepted_at ? new Date(contractAthlete.contract_accepted_at).toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'medium' }) : 'Fecha no registrada'}
+                    </span>
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">ID de Usuario: {contractAthlete.id}</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
       
       {/* MODAL: GESTIÓN DE TARIFA */}
       {showTariffModal && tariffAthlete && (
@@ -464,7 +546,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
         </div>
       )}
 
-      {/* (Resto de modales existentes: Kcal, Add, Edit, Workouts...) */}
+      {/* Modal Kcal */}
       {showKcalModal && kcalAthlete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-sm rounded-3xl p-8 text-center shadow-2xl animate-in zoom-in-95 duration-200">

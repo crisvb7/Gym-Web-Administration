@@ -6,7 +6,7 @@ import {
   Apple, 
   Dumbbell,
   DollarSign,
-  Zap, // <-- Importamos el icono para el generador
+  Zap, 
   LogOut,
   Loader2,
   Menu, 
@@ -26,7 +26,7 @@ import { NutritionForm } from "./components/nutrition-form";
 import { SetPasswordPage } from "./SetPassword";
 import { LoginPage } from "./login";
 import { BillingManager } from './billing-manager';
-import { TariffGenerator } from './TariffGenerator'; // <-- Importamos el nuevo componente
+import { TariffGenerator } from './TariffGenerator'; 
 
 
 export default function App() {
@@ -115,7 +115,7 @@ export default function App() {
       case 'dashboard': return <DashboardOverview />;
       case 'members': return <MembersPage onSelectMember={(u) => setSelectedUser(u)} />;
       case 'schedule': return <ScheduleManager />;
-      case 'tariff-generator': return <TariffGenerator />; // <-- Añadimos el renderizado del componente
+      case 'tariff-generator': return <TariffGenerator />; 
       case 'nutrition': return <NutritionManager />;
       case 'workouts': return <WorkoutsPage />;
       case 'billing': return <BillingManager />; 
@@ -127,7 +127,7 @@ export default function App() {
     { id: 'dashboard', label: 'Panel de Control', icon: LayoutDashboard },
     { id: 'members', label: 'Clientes', icon: Users },
     { id: 'schedule', label: 'Horarios', icon: Calendar },
-    { id: 'tariff-generator', label: 'Generador Tarifas', icon: Zap }, // <-- Añadido al menú visual
+    { id: 'tariff-generator', label: 'Generador Tarifas', icon: Zap }, 
     { id: 'nutrition', label: 'Nutrición', icon: Apple },
     { id: 'workouts', label: 'Entrenamientos', icon: Dumbbell },
     { id: 'billing', label: 'Facturación', icon: DollarSign }, 
@@ -191,19 +191,24 @@ export default function App() {
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0
       `}>
-        {/* --- CABECERA DE LA BARRA LATERAL CORREGIDA --- */}
+        {/* --- CABECERA DE LA BARRA LATERAL ADAPTADA --- */}
         <div className="p-5 flex justify-between items-center">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 shrink-0 bg-[#E31C25] rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(227,28,37,0.4)]">
               <Activity className="text-white w-6 h-6" />
             </div>
-            {/* Se ha reducido el tamaño del texto a text-lg y añadido truncate para que no rompa el diseño */}
-            <span className="text-lg font-black tracking-tighter truncate">
-              <span className="text-[#E31C25]">DANIEL</span>MIRANDA
-            </span>
+            {/* Título en dos líneas: Nombre + Lema */}
+            <div className="flex flex-col justify-center min-w-0">
+              <span className="text-lg font-black tracking-tighter truncate leading-none">
+                <span className="text-[#E31C25]">DANIEL</span>MIRANDA
+              </span>
+              <span className="text-[10px] text-gray-400 font-bold tracking-widest mt-1 uppercase truncate">
+                En Movimiento
+              </span>
+            </div>
           </div>
           
-          {/* Botón Cerrar (Solo Móvil) - Se le ha añadido shrink-0 para que nunca se aplaste */}
+          {/* Botón Cerrar (Solo Móvil) */}
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white shrink-0 ml-2">
             <X size={24} />
           </button>
@@ -244,7 +249,6 @@ export default function App() {
 
       {/* --- CONTENIDO PRINCIPAL --- */}
       <main className="flex-1 h-screen overflow-y-auto w-full">
-        {/* Añadimos padding-top en móvil para que el contenido no quede debajo del botón hamburguesa */}
         <div className="p-4 pt-20 lg:p-8 max-w-7xl mx-auto">
           {renderContent()}
         </div>
