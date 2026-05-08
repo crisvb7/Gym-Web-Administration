@@ -33,14 +33,12 @@ export default function App() {
   // --- ESTADO PARA EL MENÚ EN MÓVIL ---
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // 1. DETECTAMOS LA INVITACIÓN SÍNCRONAMENTE (Solución de los 10 segundos)
+  // 1. DETECCIÓN INSTANTÁNEA MEJORADA (Mirando también el hash de la URL)
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
-  const [isInviteFlow, setIsInviteFlow] = useState(
-    currentUrl.includes('type=invite') || currentUrl.includes('type=recovery')
-  );
-  const [linkExpired, setLinkExpired] = useState(
-    currentUrl.includes('error=')
-  );
+  const hash = typeof window !== 'undefined' ? window.location.hash : '';
+  
+  const isInviteFlow = currentUrl.includes('type=invite') || currentUrl.includes('type=recovery') || hash.includes('type=invite') || hash.includes('type=recovery');
+  const linkExpired = currentUrl.includes('error=') || hash.includes('error=');
 
   // Estados de tu panel
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -54,18 +52,17 @@ export default function App() {
   // 2. GUARDIA DE SEGURIDAD
   useEffect(() => {
     const checkStaffRole = async (currentSession: any) => {
+      // Si el cliente viene por invitación, ni comprobamos rol. Lo cortamos aquí.
+      if (isInviteFlow || linkExpired) {
+        setIsCheckingAuth(false);
+        return; 
+      }
+
       if (!currentSession) {
         setSession(null);
         setHasAccess(false);
         setIsCheckingAuth(false);
         return;
-      }
-
-      // Si el cliente viene por una invitación, el guardia lo deja pasar.
-      if (isInviteFlow || linkExpired) {
-        setSession(currentSession);
-        setIsCheckingAuth(false);
-        return; 
       }
 
       // Si es un acceso normal (login), comprobamos que sea staff
@@ -134,9 +131,10 @@ export default function App() {
   ];
 
   // ==========================================
-  // FLUJOS DE PANTALLA
+  // FLUJOS DE PANTALLA (EL ORDEN IMPORTA)
   // ==========================================
 
+  // A. Pantalla de error de enlace
   if (linkExpired) {
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4">
@@ -149,10 +147,12 @@ export default function App() {
     );
   }
 
+  // B. Pantalla de crear contraseña (¡Aquí delega el control a SetPasswordPage!)
   if (isInviteFlow) {
     return <SetPasswordPage />;
   }
 
+  // C. Pantalla de carga para admins
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -161,10 +161,12 @@ export default function App() {
     );
   }
 
+  // D. Pantalla de login si no es admin o no hay sesión
   if (!session || !hasAccess) {
     return <LoginPage />;
   }
 
+  // E. EL PANEL DE CONTROL PRINCIPAL
   return (
     <div className="flex min-h-screen bg-[#0a0a0a] text-white font-sans animate-in fade-in duration-500 relative overflow-hidden">
       
