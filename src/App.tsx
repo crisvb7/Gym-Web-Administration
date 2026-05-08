@@ -29,37 +29,44 @@ import { BillingManager } from './billing-manager';
 import { TariffGenerator } from './TariffGenerator'; 
 
 export default function App() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-  
-  // Detección de error en el enlace
+  // 1. EL BYPASS INSTANTÁNEO (Detecta el link mágico en el milisegundo 0)
+  const [isDirectInvite] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const url = window.location.href;
+    // Si la URL tiene un token o dice que es invitación, es un pase VIP directo.
+    return url.includes('type=invite') || url.includes('type=recovery') || url.includes('access_token=');
+  });
+
   const [linkExpired] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.location.href.includes('error=');
   });
 
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  
   // ESTADOS DE SEGURIDAD
   const [session, setSession] = useState<any>(null);
   const [hasAccess, setHasAccess] = useState(false); 
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  
-  // NUEVO: Estados para capturar al cliente sin echarlo
+  const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired);
   const [isClientPortal, setIsClientPortal] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
 
   useEffect(() => {
+    // ⚠️ ATENCIÓN AQUÍ: Si es una invitación directa, ABORTAMOS las comprobaciones.
+    // Esto evita los 10 segundos de espera consultando a la base de datos.
+    if (isDirectInvite || linkExpired) return;
+
     const checkStaffRole = async (currentSession: any) => {
       if (!currentSession) {
         setSession(null);
         setHasAccess(false);
-        // IMPORTANTE: NO ponemos isClientPortal a false aquí.
-        // Así permitimos que vean el mensaje de "¡Contraseña Guardada!" tras guardarla y cerrar sesión.
         setIsCheckingAuth(false);
         return;
       }
 
-      // Comprobamos quién es en la base de datos
+      // Comprobamos quién es en la BD
       const { data } = await supabase
         .from('profiles')
         .select('role')
@@ -67,14 +74,10 @@ export default function App() {
         .single();
 
       if (data?.role === 'admin' || data?.role === 'trainer') {
-        // Es del equipo, le damos acceso al panel principal
         setSession(currentSession);
         setHasAccess(true);
         setIsClientPortal(false);
       } else {
-        // ¡LA SOLUCIÓN ESTÁ AQUÍ!
-        // Es un cliente (Atleta). En vez de cerrarle la sesión y echarlo, 
-        // lo retenemos en el "Portal de Cliente" para que ponga su contraseña.
         setSession(currentSession);
         setHasAccess(false);
         setIsClientPortal(true); 
@@ -82,21 +85,17 @@ export default function App() {
       setIsCheckingAuth(false);
     };
 
-    // 1. Miramos la sesión al cargar
     supabase.auth.getSession().then(({ data: { session } }) => {
       checkStaffRole(session);
     });
 
-    // 2. Escuchamos cambios (por ejemplo, cuando Supabase detecta el token mágico)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setIsRecovery(true);
-      }
+      if (event === 'PASSWORD_RECOVERY') setIsRecovery(true);
       checkStaffRole(newSession);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [isDirectInvite, linkExpired]); // Se añade isDirectInvite a las dependencias
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -134,7 +133,6 @@ export default function App() {
   // ORDEN DE PANTALLAS (UX MEJORADA)
   // ==========================================
 
-  // 1. Enlace caducado o usado
   if (linkExpired) {
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4">
@@ -147,7 +145,11 @@ export default function App() {
     );
   }
 
-  // 2. Pantalla de carga mientras comprobamos el perfil
+  // EL PASE VIP INSTANTÁNEO
+  if (isDirectInvite || isClientPortal || isRecovery) {
+    return <SetPasswordPage />;
+  }
+
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -156,17 +158,10 @@ export default function App() {
     );
   }
 
-  // 3. ¡EL PORTAL DE CLIENTE! Si detectamos que es Atleta o alguien recuperando la clave
-  if (isClientPortal || isRecovery) {
-    return <SetPasswordPage />;
-  }
-
-  // 4. Si no hay sesión válida, al Login
   if (!session || !hasAccess) {
     return <LoginPage />;
   }
 
-  // 5. EL PANEL DE CONTROL PRINCIPAL PARA EL STAFF
   return (
     <div className="flex min-h-screen bg-[#0a0a0a] text-white font-sans animate-in fade-in duration-500 relative overflow-hidden">
       
