@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { supabase } from './lib/supabase';
 
-// Importación de tus componentes
+// Importación de componentes
 import { DashboardOverview } from "./dashboard-overview";
 import { MembersPage } from "./members";
 import { ScheduleManager } from "./schedule-manager";
@@ -22,53 +22,44 @@ import { NutritionManager } from "./nutrition-manager";
 import { WorkoutsPage } from "./workouts";
 import { NutritionForm } from "./components/nutrition-form";
 
-// Importamos las pantallas de seguridad
+// Pantallas de seguridad
 import { SetPasswordPage } from "./SetPassword";
 import { LoginPage } from "./login";
 import { BillingManager } from './billing-manager';
 import { TariffGenerator } from './TariffGenerator'; 
 
 export default function App() {
-  // 1. TRAMPA INAMOVIBLE PARA LA INVITACIÓN
-  // Lee la URL solo una vez al cargar. Aunque Supabase borre la URL luego por seguridad,
-  // la App no olvidará que veníamos a configurar la contraseña.
-  const [isSetupFlow] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const url = window.location.href;
-    return url.includes('type=invite') || url.includes('type=recovery') || window.location.hash.includes('type=invite');
-  });
-
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  
+  // Detección de error en el enlace
   const [linkExpired] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.location.href.includes('error=');
   });
 
-  // Estados del panel
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-  
-  // Estados de seguridad (Si estamos en Setup, ni siquiera comprobamos la Auth inicial)
+  // ESTADOS DE SEGURIDAD
   const [session, setSession] = useState<any>(null);
   const [hasAccess, setHasAccess] = useState(false); 
-  const [isCheckingAuth, setIsCheckingAuth] = useState(!isSetupFlow && !linkExpired);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  
+  // NUEVO: Estados para capturar al cliente sin echarlo
+  const [isClientPortal, setIsClientPortal] = useState(false);
+  const [isRecovery, setIsRecovery] = useState(false);
 
-  // 2. GUARDIA DE SEGURIDAD
   useEffect(() => {
-    // SI ESTAMOS EN MODO INVITACIÓN, CORTAMOS AQUÍ. NO HAY SEGURIDAD QUE COMPROBAR.
-    if (isSetupFlow || linkExpired) {
-      return;
-    }
-
     const checkStaffRole = async (currentSession: any) => {
       if (!currentSession) {
         setSession(null);
         setHasAccess(false);
+        // IMPORTANTE: NO ponemos isClientPortal a false aquí.
+        // Así permitimos que vean el mensaje de "¡Contraseña Guardada!" tras guardarla y cerrar sesión.
         setIsCheckingAuth(false);
         return;
       }
 
-      // Si es un acceso normal (login), comprobamos que sea staff
+      // Comprobamos quién es en la base de datos
       const { data } = await supabase
         .from('profiles')
         .select('role')
@@ -76,30 +67,37 @@ export default function App() {
         .single();
 
       if (data?.role === 'admin' || data?.role === 'trainer') {
+        // Es del equipo, le damos acceso al panel principal
         setSession(currentSession);
         setHasAccess(true);
+        setIsClientPortal(false);
       } else {
-        await supabase.auth.signOut(); 
-        setSession(null);
+        // ¡LA SOLUCIÓN ESTÁ AQUÍ!
+        // Es un cliente (Atleta). En vez de cerrarle la sesión y echarlo, 
+        // lo retenemos en el "Portal de Cliente" para que ponga su contraseña.
+        setSession(currentSession);
         setHasAccess(false);
+        setIsClientPortal(true); 
       }
       setIsCheckingAuth(false);
     };
 
-    // Miramos la sesión al cargar
+    // 1. Miramos la sesión al cargar
     supabase.auth.getSession().then(({ data: { session } }) => {
       checkStaffRole(session);
     });
 
-    // Escuchamos cambios de sesión
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    // 2. Escuchamos cambios (por ejemplo, cuando Supabase detecta el token mágico)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecovery(true);
+      }
       checkStaffRole(newSession);
     });
 
     return () => subscription.unsubscribe();
-  }, [isSetupFlow, linkExpired]);
+  }, []);
 
-  // Función para cerrar sesión
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
@@ -133,9 +131,10 @@ export default function App() {
   ];
 
   // ==========================================
-  // FLUJOS DE PANTALLA
+  // ORDEN DE PANTALLAS (UX MEJORADA)
   // ==========================================
 
+  // 1. Enlace caducado o usado
   if (linkExpired) {
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4">
@@ -148,11 +147,7 @@ export default function App() {
     );
   }
 
-  // DELEGACIÓN INSTANTÁNEA AL FORMULARIO DE CONTRASEÑA
-  if (isSetupFlow) {
-    return <SetPasswordPage />;
-  }
-
+  // 2. Pantalla de carga mientras comprobamos el perfil
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -161,14 +156,20 @@ export default function App() {
     );
   }
 
+  // 3. ¡EL PORTAL DE CLIENTE! Si detectamos que es Atleta o alguien recuperando la clave
+  if (isClientPortal || isRecovery) {
+    return <SetPasswordPage />;
+  }
+
+  // 4. Si no hay sesión válida, al Login
   if (!session || !hasAccess) {
     return <LoginPage />;
   }
 
+  // 5. EL PANEL DE CONTROL PRINCIPAL PARA EL STAFF
   return (
     <div className="flex min-h-screen bg-[#0a0a0a] text-white font-sans animate-in fade-in duration-500 relative overflow-hidden">
       
-      {/* --- BOTÓN HAMBURGUESA (MÓVIL) --- */}
       <button
         onClick={() => setIsSidebarOpen(true)}
         className="lg:hidden absolute top-4 left-4 z-40 p-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl text-white hover:text-[#E31C25] transition-colors"
@@ -176,7 +177,6 @@ export default function App() {
         <Menu size={24} />
       </button>
 
-      {/* --- OVERLAY OSCURO (MÓVIL) --- */}
       {isSidebarOpen && (
         <div 
           className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
@@ -184,7 +184,6 @@ export default function App() {
         />
       )}
 
-      {/* --- BARRA LATERAL (SIDEBAR) --- */}
       <aside className={`
         fixed lg:static inset-y-0 left-0 z-50 w-64 bg-[#121212] border-r border-[#2a2a2a] flex flex-col h-screen
         transform transition-transform duration-300 ease-in-out
@@ -244,14 +243,12 @@ export default function App() {
         </div>
       </aside>
 
-      {/* --- CONTENIDO PRINCIPAL --- */}
       <main className="flex-1 h-screen overflow-y-auto w-full">
         <div className="p-4 pt-20 lg:p-8 max-w-7xl mx-auto">
           {renderContent()}
         </div>
       </main>
 
-      {/* Nutrition Form Modal */}
       {selectedUser && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex justify-end">
           <div className="w-full max-w-md bg-[#1a1a1a] h-full p-8 border-l border-[#2a2a2a] shadow-2xl overflow-y-auto">
