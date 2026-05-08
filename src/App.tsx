@@ -28,36 +28,39 @@ import { LoginPage } from "./login";
 import { BillingManager } from './billing-manager';
 import { TariffGenerator } from './TariffGenerator'; 
 
-
 export default function App() {
-  // --- ESTADO PARA EL MENÚ EN MÓVIL ---
+  // 1. TRAMPA INAMOVIBLE PARA LA INVITACIÓN
+  // Lee la URL solo una vez al cargar. Aunque Supabase borre la URL luego por seguridad,
+  // la App no olvidará que veníamos a configurar la contraseña.
+  const [isSetupFlow] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const url = window.location.href;
+    return url.includes('type=invite') || url.includes('type=recovery') || window.location.hash.includes('type=invite');
+  });
+
+  const [linkExpired] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.href.includes('error=');
+  });
+
+  // Estados del panel
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-  // 1. DETECCIÓN INSTANTÁNEA MEJORADA (Mirando también el hash de la URL)
-  const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
-  const hash = typeof window !== 'undefined' ? window.location.hash : '';
-  
-  const isInviteFlow = currentUrl.includes('type=invite') || currentUrl.includes('type=recovery') || hash.includes('type=invite') || hash.includes('type=recovery');
-  const linkExpired = currentUrl.includes('error=') || hash.includes('error=');
-
-  // Estados de tu panel
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedUser, setSelectedUser] = useState<any>(null);
   
-  // Estados de seguridad
+  // Estados de seguridad (Si estamos en Setup, ni siquiera comprobamos la Auth inicial)
   const [session, setSession] = useState<any>(null);
   const [hasAccess, setHasAccess] = useState(false); 
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(!isSetupFlow && !linkExpired);
 
   // 2. GUARDIA DE SEGURIDAD
   useEffect(() => {
-    const checkStaffRole = async (currentSession: any) => {
-      // Si el cliente viene por invitación, ni comprobamos rol. Lo cortamos aquí.
-      if (isInviteFlow || linkExpired) {
-        setIsCheckingAuth(false);
-        return; 
-      }
+    // SI ESTAMOS EN MODO INVITACIÓN, CORTAMOS AQUÍ. NO HAY SEGURIDAD QUE COMPROBAR.
+    if (isSetupFlow || linkExpired) {
+      return;
+    }
 
+    const checkStaffRole = async (currentSession: any) => {
       if (!currentSession) {
         setSession(null);
         setHasAccess(false);
@@ -94,14 +97,13 @@ export default function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, [isInviteFlow, linkExpired]);
+  }, [isSetupFlow, linkExpired]);
 
   // Función para cerrar sesión
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
   
-  // --- FUNCIÓN PARA CAMBIAR DE TAB Y CERRAR EL MENÚ EN MÓVIL ---
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
     setIsSidebarOpen(false); 
@@ -131,10 +133,9 @@ export default function App() {
   ];
 
   // ==========================================
-  // FLUJOS DE PANTALLA (EL ORDEN IMPORTA)
+  // FLUJOS DE PANTALLA
   // ==========================================
 
-  // A. Pantalla de error de enlace
   if (linkExpired) {
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4">
@@ -147,12 +148,11 @@ export default function App() {
     );
   }
 
-  // B. Pantalla de crear contraseña (¡Aquí delega el control a SetPasswordPage!)
-  if (isInviteFlow) {
+  // DELEGACIÓN INSTANTÁNEA AL FORMULARIO DE CONTRASEÑA
+  if (isSetupFlow) {
     return <SetPasswordPage />;
   }
 
-  // C. Pantalla de carga para admins
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -161,12 +161,10 @@ export default function App() {
     );
   }
 
-  // D. Pantalla de login si no es admin o no hay sesión
   if (!session || !hasAccess) {
     return <LoginPage />;
   }
 
-  // E. EL PANEL DE CONTROL PRINCIPAL
   return (
     <div className="flex min-h-screen bg-[#0a0a0a] text-white font-sans animate-in fade-in duration-500 relative overflow-hidden">
       
@@ -193,13 +191,11 @@ export default function App() {
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0
       `}>
-        {/* --- CABECERA DE LA BARRA LATERAL ADAPTADA --- */}
         <div className="p-5 flex justify-between items-center">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 shrink-0 bg-[#E31C25] rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(227,28,37,0.4)]">
               <Activity className="text-white w-6 h-6" />
             </div>
-            {/* Título en dos líneas: Nombre + Lema */}
             <div className="flex flex-col justify-center min-w-0">
               <span className="text-lg font-black tracking-tighter truncate leading-none">
                 <span className="text-[#E31C25]">DANIEL</span>MIRANDA
@@ -210,7 +206,6 @@ export default function App() {
             </div>
           </div>
           
-          {/* Botón Cerrar (Solo Móvil) */}
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white shrink-0 ml-2">
             <X size={24} />
           </button>
