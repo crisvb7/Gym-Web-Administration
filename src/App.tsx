@@ -41,7 +41,7 @@ export default function App() {
   // 2. NUEVO: DETECTOR DE LA PÁGINA PÚBLICA DE PRIVACIDAD
   const [isPrivacyRoute] = useState(() => {
     if (typeof window === 'undefined') return false;
-    return window.location.pathname.includes('/privacidad');
+    return window.location.href.includes('privacidad');
   });
 
   const [linkExpired] = useState(() => {
