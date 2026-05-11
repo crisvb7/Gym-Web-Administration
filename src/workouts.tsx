@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, Play, UserPlus, Calendar, Layers, Circle } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, Play, UserPlus, Calendar, Layers, Circle, Upload, Image as ImageIcon } from "lucide-react";
 import { supabase } from "./lib/supabase"; 
 
 interface Exercise {
@@ -14,7 +14,6 @@ interface Exercise {
   rest_time: number;
 }
 
-// Nueva interfaz para permitir ejercicios duplicados en la superserie
 interface SelectedInstance {
   instanceId: string;
   exercise: Exercise;
@@ -33,6 +32,10 @@ export function WorkoutsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [previewExercise, setPreviewExercise] = useState<Exercise | null>(null);
   
+  // ESTADOS NUEVOS PARA SUBIDA DE IMÁGENES
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // --- MODO SUPERSERIE (Soporta duplicados) ---
   const [isSupersetMode, setIsSupersetMode] = useState(false);
   const [selectedExercises, setSelectedExercises] = useState<SelectedInstance[]>([]);
@@ -44,7 +47,7 @@ export function WorkoutsPage() {
     user_id: "",
     date: new Date().toISOString().split('T')[0],
     target_sets: 3,
-    exercises_config: {} as Record<number, { target_reps: number, target_weight: number }> // Ahora indexado por número
+    exercises_config: {} as Record<number, { target_reps: number, target_weight: number }>
   });
 
   const [clientSearchTerm, setClientSearchTerm] = useState("");
@@ -97,10 +100,52 @@ export function WorkoutsPage() {
     setIsModalOpen(true);
   };
 
-  // --- LÓGICA DE SELECCIÓN (Permite duplicados) ---
+  // --- LÓGICA DE SUBIDA DE IMAGEN A SUPABASE STORAGE ---
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      // Validación simple de tamaño (Max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('La imagen es demasiado grande. El límite es de 5MB.');
+        return;
+      }
+
+      setIsUploadingImage(true);
+
+      // Creamos un nombre de archivo único para evitar que se pisen
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
+      const filePath = `thumbnails/${fileName}`;
+
+      // Subimos a Supabase Storage (Al bucket 'exercises')
+      const { error: uploadError } = await supabase.storage
+        .from('exercises')
+        .upload(filePath, file, { upsert: false });
+
+      if (uploadError) throw uploadError;
+
+      // Obtenemos la URL pública de la imagen recién subida
+      const { data: { publicUrl } } = supabase.storage
+        .from('exercises')
+        .getPublicUrl(filePath);
+
+      // Actualizamos el formulario con la nueva URL
+      setFormData(prev => ({ ...prev, thumbnail_url: publicUrl }));
+
+    } catch (error: any) {
+      alert(`Error al subir la imagen: ${error.message}. Asegúrate de haber creado el bucket "exercises" y que sea Público.`);
+    } finally {
+      setIsUploadingImage(false);
+      // Reseteamos el input para que deje volver a seleccionar el mismo archivo si hay un error
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleAddExercise = (ex: Exercise) => {
     setSelectedExercises([...selectedExercises, { 
-      instanceId: Math.random().toString(36).substring(7), // ID único para esta tirada
+      instanceId: Math.random().toString(36).substring(7),
       exercise: ex 
     }]);
   };
@@ -299,7 +344,6 @@ export function WorkoutsPage() {
                   }}
                 >
                   
-                  {/* Indicador visual de selección */}
                   {isSupersetMode && (
                     <div className="absolute top-3 left-3 z-30 flex items-center justify-center">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-lg ${
@@ -354,7 +398,7 @@ export function WorkoutsPage() {
         </div>
       )}
 
-      {/* BARRA FLOTANTE DE SUPERSERIES MEJORADA */}
+      {/* BARRA FLOTANTE DE SUPERSERIES */}
       {isSupersetMode && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#121212] border-2 border-[#E31C25] p-4 rounded-2xl shadow-[0_10px_40px_rgba(227,28,37,0.5)] z-40 flex flex-col items-center gap-4 animate-in slide-in-from-bottom-10 w-[95%] max-w-2xl">
           <div className="flex items-center gap-3 w-full">
@@ -362,7 +406,6 @@ export function WorkoutsPage() {
             <div className="flex-1 min-w-0">
               <p className="text-white font-bold">{selectedExercises.length} Ejercicios seleccionados</p>
               
-              {/* Lista horizontal de los ejercicios elegidos */}
               <div className="flex gap-2 overflow-x-auto mt-2 pb-1 custom-scrollbar w-full">
                 {selectedExercises.length === 0 && <span className="text-xs text-gray-500 italic">Toca las tarjetas para añadirlas...</span>}
                 {selectedExercises.map((se, index) => (
@@ -403,7 +446,6 @@ export function WorkoutsPage() {
             <div className="overflow-y-auto p-6 custom-scrollbar">
               <form id="assign-form" onSubmit={handleAssignSubmit} className="space-y-6">
                 
-                {/* Bloque 1: Cliente y Fecha */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#1a1a1a] p-4 rounded-xl border border-[#2a2a2a]">
                   <div className="relative">
                     <label className="block text-xs font-bold text-gray-400 mb-2 uppercase">Atleta *</label>
@@ -430,13 +472,11 @@ export function WorkoutsPage() {
                   </div>
                 </div>
 
-                {/* Bloque 2: Series Globales */}
                 <div className="bg-[#E31C25]/10 border border-[#E31C25]/20 p-4 rounded-xl text-center">
                   <label className="block text-sm font-bold text-[#E31C25] mb-2 uppercase tracking-widest">Vueltas / Series Totales</label>
                   <input type="number" required value={assignForm.target_sets} onChange={(e) => setAssignForm({...assignForm, target_sets: parseInt(e.target.value)})} className="w-24 bg-[#121212] border border-[#E31C25]/50 p-2 rounded-lg text-white text-center text-xl font-black outline-none focus:border-[#E31C25] mx-auto" />
                 </div>
 
-                {/* Bloque 3: Configuración de cada Ejercicio */}
                 <div className="space-y-3">
                   <label className="block text-sm font-bold text-gray-400 mb-2">Configuración por ejercicio:</label>
                   {assigningExercises.map((se, index) => (
@@ -492,7 +532,7 @@ export function WorkoutsPage() {
         </div>
       )}
 
-      {/* Modal de Creación/Edición General */}
+      {/* Modal de Creación/Edición General con Subida de Imagen */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end animate-in fade-in duration-200">
           <div className="bg-[#121212] w-full max-w-md h-full border-l border-[#2a2a2a] flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
@@ -505,8 +545,68 @@ export function WorkoutsPage() {
               <form id="exercise-form" onSubmit={handleSubmit} className="space-y-5">
                 <div><label className="block text-sm font-bold text-gray-400 mb-2">Nombre del ejercicio *</label><input required type="text" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" /></div>
                 <div><label className="block text-sm font-bold text-gray-400 mb-2">Categoría *</label><select required value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none appearance-none cursor-pointer">{categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div>
-                <div><label className="block text-sm font-bold text-gray-400 mb-2">ID de Video (Opcional)</label><input type="text" value={formData.video_url} onChange={(e) => setFormData({...formData, video_url: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" /></div>
-                <div><label className="block text-sm font-bold text-gray-400 mb-2">URL de la Miniatura (Opcional)</label><input type="url" value={formData.thumbnail_url} onChange={(e) => setFormData({...formData, thumbnail_url: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" /></div>
+                <div><label className="block text-sm font-bold text-gray-400 mb-2">ID de Video Youtube (Opcional)</label><input type="text" value={formData.video_url} onChange={(e) => setFormData({...formData, video_url: e.target.value})} placeholder="Ej: dQw4w9WgXcQ" className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none placeholder:text-gray-600" /></div>
+                
+                {/* --- NUEVO BLOQUE DE IMAGEN DUAL (URL o Subida) --- */}
+                <div className="bg-[#1a1a1a] p-4 rounded-xl border border-[#2a2a2a]">
+                  <label className="block text-sm font-bold text-gray-400 mb-3 flex items-center gap-2">
+                    <ImageIcon size={16} className="text-[#E31C25]"/> Imagen del Ejercicio
+                  </label>
+                  
+                  {/* Preview de la imagen si ya hay una URL */}
+                  {formData.thumbnail_url && (
+                    <div className="relative h-32 mb-4 bg-[#121212] rounded-lg border border-[#2a2a2a] overflow-hidden group">
+                      <img src={formData.thumbnail_url} alt="Vista previa" className="w-full h-full object-cover opacity-80 group-hover:opacity-40 transition-opacity" />
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button type="button" onClick={() => setFormData({...formData, thumbnail_url: ""})} className="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 shadow-lg">
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {!formData.thumbnail_url && (
+                    <div className="flex flex-col gap-3">
+                      {/* Opcion 1: Subir Archivo */}
+                      <div className="relative">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          onChange={handleImageUpload} 
+                          ref={fileInputRef}
+                          className="hidden" 
+                          id="image-upload"
+                          disabled={isUploadingImage}
+                        />
+                        <label 
+                          htmlFor="image-upload" 
+                          className={`flex items-center justify-center gap-2 w-full py-3 px-4 rounded-lg border-2 border-dashed font-bold transition-colors cursor-pointer text-sm
+                            ${isUploadingImage 
+                              ? 'border-[#E31C25] text-[#E31C25] bg-[#E31C25]/10' 
+                              : 'border-[#2a2a2a] text-gray-400 hover:text-white hover:border-gray-500 hover:bg-[#2a2a2a]'
+                            }`}
+                        >
+                          {isUploadingImage ? <><Loader2 size={18} className="animate-spin" /> Subiendo imagen...</> : <><Upload size={18} /> Subir desde el dispositivo</>}
+                        </label>
+                      </div>
+
+                      <div className="flex items-center gap-4 text-xs font-bold text-gray-500 uppercase">
+                        <div className="flex-1 h-px bg-[#2a2a2a]"></div>
+                        O PEGAR ENLACE
+                        <div className="flex-1 h-px bg-[#2a2a2a]"></div>
+                      </div>
+
+                      {/* Opcion 2: URL tradicional */}
+                      <input 
+                        type="url" 
+                        value={formData.thumbnail_url} 
+                        onChange={(e) => setFormData({...formData, thumbnail_url: e.target.value})} 
+                        placeholder="https://ejemplo.com/foto.jpg"
+                        className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-lg text-white focus:border-[#E31C25] outline-none text-sm placeholder:text-gray-600" 
+                      />
+                    </div>
+                  )}
+                </div>
                 
                 <div className="grid grid-cols-3 gap-4 p-4 bg-[#1a1a1a] rounded-xl border border-[#2a2a2a]">
                   <div><label className="block text-[10px] uppercase font-bold text-gray-400 mb-1 text-center">Kcal / Rep</label><input type="number" step="0.1" required value={formData.kcal_estimate} onChange={(e) => setFormData({...formData, kcal_estimate: parseFloat(e.target.value)})} className="w-full bg-[#121212] border border-[#2a2a2a] p-2 rounded-lg text-white text-center outline-none focus:border-[#E31C25] transition-colors" /></div>
@@ -519,7 +619,7 @@ export function WorkoutsPage() {
             </div>
             
             <div className="p-6 border-t border-[#2a2a2a] bg-[#1a1a1a]">
-              <button form="exercise-form" type="submit" disabled={isSubmitting} className="w-full bg-[#E31C25] text-white font-bold py-4 rounded-xl hover:bg-[#A6151B] transition-colors flex items-center justify-center gap-2">
+              <button form="exercise-form" type="submit" disabled={isSubmitting || isUploadingImage} className={`w-full font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 ${isSubmitting || isUploadingImage ? 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed' : 'bg-[#E31C25] text-white hover:bg-[#A6151B] shadow-[0_0_15px_rgba(227,28,37,0.3)]'}`}>
                 {isSubmitting ? <Loader2 className="animate-spin w-5 h-5" /> : <><Save size={20} /> {editingId ? "Guardar Cambios" : "Crear Ejercicio"}</>}
               </button>
             </div>
