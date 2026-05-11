@@ -22,11 +22,12 @@ import { NutritionManager } from "./nutrition-manager";
 import { WorkoutsPage } from "./workouts";
 import { NutritionForm } from "./components/nutrition-form";
 
-// Pantallas de seguridad
+// Pantallas de seguridad y legales
 import { SetPasswordPage } from "./SetPassword";
 import { LoginPage } from "./login";
 import { BillingManager } from './billing-manager';
 import { TariffGenerator } from './TariffGenerator'; 
+import { PrivacyPolicy } from "./PrivacyPolicy";
 
 export default function App() {
   // 1. EL BYPASS INSTANTÁNEO (Detecta el link mágico en el milisegundo 0)
@@ -35,6 +36,12 @@ export default function App() {
     const url = window.location.href;
     // Si la URL tiene un token o dice que es invitación, es un pase VIP directo.
     return url.includes('type=invite') || url.includes('type=recovery') || url.includes('access_token=');
+  });
+
+  // 2. NUEVO: DETECTOR DE LA PÁGINA PÚBLICA DE PRIVACIDAD
+  const [isPrivacyRoute] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.pathname.includes('/privacidad');
   });
 
   const [linkExpired] = useState(() => {
@@ -49,14 +56,13 @@ export default function App() {
   // ESTADOS DE SEGURIDAD
   const [session, setSession] = useState<any>(null);
   const [hasAccess, setHasAccess] = useState(false); 
-  const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute);
   const [isClientPortal, setIsClientPortal] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
 
   useEffect(() => {
-    // ⚠️ ATENCIÓN AQUÍ: Si es una invitación directa, ABORTAMOS las comprobaciones.
-    // Esto evita los 10 segundos de espera consultando a la base de datos.
-    if (isDirectInvite || linkExpired) return;
+    // ⚠️ ATENCIÓN AQUÍ: Si es la web de privacidad, invitación directa o error, ABORTAMOS las comprobaciones.
+    if (isDirectInvite || linkExpired || isPrivacyRoute) return;
 
     const checkStaffRole = async (currentSession: any) => {
       if (!currentSession) {
@@ -95,7 +101,7 @@ export default function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, [isDirectInvite, linkExpired]); // Se añade isDirectInvite a las dependencias
+  }, [isDirectInvite, linkExpired, isPrivacyRoute]); // Se añaden a las dependencias
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -133,6 +139,12 @@ export default function App() {
   // ORDEN DE PANTALLAS (UX MEJORADA)
   // ==========================================
 
+  // 1. LA PÁGINA PÚBLICA DE PRIVACIDAD (Se muestra la primera para ser 100% pública)
+  if (isPrivacyRoute) {
+    return <PrivacyPolicy />;
+  }
+
+  // 2. ERROR DE ENLACE
   if (linkExpired) {
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4">
@@ -145,11 +157,12 @@ export default function App() {
     );
   }
 
-  // EL PASE VIP INSTANTÁNEO
+  // 3. EL PASE VIP INSTANTÁNEO (Contraseña de cliente)
   if (isDirectInvite || isClientPortal || isRecovery) {
     return <SetPasswordPage />;
   }
 
+  // 4. CARGADOR
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -158,10 +171,12 @@ export default function App() {
     );
   }
 
+  // 5. LOGIN
   if (!session || !hasAccess) {
     return <LoginPage />;
   }
 
+  // 6. DASHBOARD PRINCIPAL (Solo Staff)
   return (
     <div className="flex min-h-screen bg-[#0a0a0a] text-white font-sans animate-in fade-in duration-500 relative overflow-hidden">
       
