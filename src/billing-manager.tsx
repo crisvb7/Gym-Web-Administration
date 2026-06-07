@@ -217,7 +217,7 @@ export function BillingManager() {
     .map(c => ({ ...c, invoice: invoices.find(inv => inv.user_id === c.id) }));
 
   const capitalizedMonthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase());
-  const currentDay = 10;
+  const currentDay = today.getDate();
 
   return (
     <div className="space-y-6">
@@ -335,8 +335,8 @@ export function BillingManager() {
           </thead>
           <tbody className="divide-y divide-[#2a2a2a]">
             {displayData.map((data) => {
-              const isPending = data.payment_status === 'pending' || !data.payment_status;
-              const isFrozen = isPending && currentDay >= 6;
+              const hasInvoiceThisMonth = !!data.invoice;
+              const isFrozen = !hasInvoiceThisMonth && currentDay >= 6;
 
               return (
                 <tr key={data.id} className="hover:bg-white/5 transition-colors">
