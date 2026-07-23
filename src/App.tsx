@@ -257,7 +257,7 @@ export default function App() {
           {/* === BOTÓN KIOSKO TV (Usa #/tv para GitHub Pages) === */}
           <div className="pt-6 pb-2">
             <a
-              href="#/tv"
+              href="/#tv"
               target="_blank"
               rel="noopener noreferrer"
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group text-gray-400 hover:bg-[#1a1a1a] hover:text-white"
