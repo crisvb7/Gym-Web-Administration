@@ -2,6 +2,7 @@
   "name": "gym-admin",
   "homepage": "https://admin.crisvb7.es",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",
@@ -60,6 +61,6 @@
     "gh-pages": "^6.3.0",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
-    "vite": "^8.0.3"
+    "vite": "^8.1.5"
   }
 }

@@ -28,6 +28,7 @@ import { LoginPage } from "./login";
 import { BillingManager } from './billing-manager';
 import { TariffGenerator } from './TariffGenerator'; 
 import { PrivacyPolicy } from "./PrivacyPolicy";
+import { TVDisplay } from "./TVDisplay";
 
 export default function App() {
   // 1. EL BYPASS INSTANTÁNEO (Detecta el link mágico en el milisegundo 0)
@@ -44,6 +45,11 @@ export default function App() {
     return window.location.href.includes('privacidad');
   });
 
+  const [isTvRoute] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.href.includes('tv');
+  });
+
   const [linkExpired] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.location.href.includes('error=');
@@ -56,13 +62,12 @@ export default function App() {
   // ESTADOS DE SEGURIDAD
   const [session, setSession] = useState<any>(null);
   const [hasAccess, setHasAccess] = useState(false); 
-  const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute);
-  const [isClientPortal, setIsClientPortal] = useState(false);
+const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute && !isTvRoute);  const [isClientPortal, setIsClientPortal] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
 
   useEffect(() => {
     // ⚠️ ATENCIÓN AQUÍ: Si es la web de privacidad, invitación directa o error, ABORTAMOS las comprobaciones.
-    if (isDirectInvite || linkExpired || isPrivacyRoute) return;
+    if (isDirectInvite || linkExpired || isPrivacyRoute || isTvRoute) return;
 
     const checkStaffRole = async (currentSession: any) => {
       if (!currentSession) {
@@ -142,6 +147,11 @@ export default function App() {
   // 1. LA PÁGINA PÚBLICA DE PRIVACIDAD (Se muestra la primera para ser 100% pública)
   if (isPrivacyRoute) {
     return <PrivacyPolicy />;
+  }
+
+  // 1.5. PANTALLA DE TV (Limpia sin menús)
+  if (isTvRoute) {
+    return <TVDisplay />;
   }
 
   // 2. ERROR DE ENLACE
