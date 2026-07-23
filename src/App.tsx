@@ -11,7 +11,7 @@ import {
   Loader2,
   Menu, 
   X,
-  MonitorPlay // <-- Añadido aquí
+  MonitorPlay 
 } from "lucide-react";
 import { supabase } from './lib/supabase';
 
@@ -40,15 +40,16 @@ export default function App() {
     return url.includes('type=invite') || url.includes('type=recovery') || url.includes('access_token=');
   });
 
-  // 2. NUEVO: DETECTOR DE LA PÁGINA PÚBLICA DE PRIVACIDAD
+  // 2. DETECTOR DE LA PÁGINA PÚBLICA DE PRIVACIDAD
   const [isPrivacyRoute] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.location.href.includes('privacidad');
   });
 
+  // 3. DETECTOR DE RUTA DE TV USANDO HASH (#/tv) PARA GITHUB PAGES
   const [isTvRoute] = useState(() => {
     if (typeof window === 'undefined') return false;
-    return window.location.href.includes('tv');
+    return window.location.hash.includes('tv');
   });
 
   const [linkExpired] = useState(() => {
@@ -68,7 +69,7 @@ export default function App() {
   const [isRecovery, setIsRecovery] = useState(false);
 
   useEffect(() => {
-    // ⚠️ ATENCIÓN AQUÍ: Si es la web de privacidad, invitación directa o error, ABORTAMOS las comprobaciones.
+    // ⚠️ ATENCIÓN AQUÍ: Si es la web de privacidad, invitación directa, tv o error, ABORTAMOS las comprobaciones.
     if (isDirectInvite || linkExpired || isPrivacyRoute || isTvRoute) return;
 
     const checkStaffRole = async (currentSession: any) => {
@@ -108,7 +109,7 @@ export default function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, [isDirectInvite, linkExpired, isPrivacyRoute, isTvRoute]); // Se añaden a las dependencias
+  }, [isDirectInvite, linkExpired, isPrivacyRoute, isTvRoute]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -146,12 +147,12 @@ export default function App() {
   // ORDEN DE PANTALLAS (UX MEJORADA)
   // ==========================================
 
-  // 1. LA PÁGINA PÚBLICA DE PRIVACIDAD (Se muestra la primera para ser 100% pública)
+  // 1. LA PÁGINA PÚBLICA DE PRIVACIDAD
   if (isPrivacyRoute) {
     return <PrivacyPolicy />;
   }
 
-  // 1.5. PANTALLA DE TV (Limpia sin menús)
+  // 1.5. PANTALLA DE TV (Limpia sin menús, usando Hash Router)
   if (isTvRoute) {
     return <TVDisplay />;
   }
@@ -253,10 +254,10 @@ export default function App() {
             );
           })}
 
-          {/* === BOTÓN KIOSKO TV (Pestaña Nueva) === */}
+          {/* === BOTÓN KIOSKO TV (Usa #/tv para GitHub Pages) === */}
           <div className="pt-6 pb-2">
             <a
-              href="/tv"
+              href="#/tv"
               target="_blank"
               rel="noopener noreferrer"
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group text-gray-400 hover:bg-[#1a1a1a] hover:text-white"
