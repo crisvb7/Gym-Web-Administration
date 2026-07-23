@@ -10,7 +10,8 @@ import {
   LogOut,
   Loader2,
   Menu, 
-  X     
+  X,
+  MonitorPlay // <-- Añadido aquí
 } from "lucide-react";
 import { supabase } from './lib/supabase';
 
@@ -62,7 +63,8 @@ export default function App() {
   // ESTADOS DE SEGURIDAD
   const [session, setSession] = useState<any>(null);
   const [hasAccess, setHasAccess] = useState(false); 
-const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute && !isTvRoute);  const [isClientPortal, setIsClientPortal] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute && !isTvRoute);
+  const [isClientPortal, setIsClientPortal] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
 
   useEffect(() => {
@@ -106,7 +108,7 @@ const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExp
     });
 
     return () => subscription.unsubscribe();
-  }, [isDirectInvite, linkExpired, isPrivacyRoute]); // Se añaden a las dependencias
+  }, [isDirectInvite, linkExpired, isPrivacyRoute, isTvRoute]); // Se añaden a las dependencias
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -230,7 +232,7 @@ const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExp
           </button>
         </div>
 
-        <nav className="flex-1 px-4 space-y-2 overflow-y-auto mt-2">
+        <nav className="flex-1 px-4 space-y-2 overflow-y-auto mt-2 pb-4">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -250,6 +252,19 @@ const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExp
               </button>
             );
           })}
+
+          {/* === BOTÓN KIOSKO TV (Pestaña Nueva) === */}
+          <div className="pt-6 pb-2">
+            <a
+              href="/tv"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group text-gray-400 hover:bg-[#1a1a1a] hover:text-white"
+            >
+              <MonitorPlay className="w-5 h-5 group-hover:text-[#E31C25] transition-colors" />
+              <span className="font-semibold text-sm">Kiosko TV</span>
+            </a>
+          </div>
         </nav>
 
         <div className="p-4 border-t border-[#2a2a2a]">
