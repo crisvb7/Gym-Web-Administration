@@ -52,12 +52,19 @@ export default function App() {
     return window.location.hash.includes('tv');
   });
 
-  // 4. DETECTOR ESPECÍFICO PARA LA PÁGINA DE DESCARGA (/app o #/app)
+  // 4. DETECTOR ESPECÍFICO PARA LA PÁGINA DE DESCARGA (/app o #/app) MEJORADO
   const [isDownloadRoute] = useState(() => {
     if (typeof window === 'undefined') return false;
-    const href = window.location.href;
-    const hash = window.location.hash;
-    return hash.includes('app') || hash.includes('download') || href.endsWith('/app') || href.endsWith('/app/');
+    const pathname = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+    
+    return (
+      pathname === '/app' || 
+      pathname === '/app/' || 
+      pathname.endsWith('/app') || 
+      pathname.endsWith('/app/') ||
+      hash.includes('app')
+    );
   });
 
   const [linkExpired] = useState(() => {
