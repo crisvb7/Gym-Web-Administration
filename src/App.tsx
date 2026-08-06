@@ -53,12 +53,10 @@ export default function App() {
   });
 
   // 4. DETECTOR ESPECÍFICO PARA LA PÁGINA DE DESCARGA (/app o #/app) MEJORADO
-  const [isDownloadRoute] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const hash = window.location.hash.toLowerCase();
-    
-    return hash.includes('app') || hash.includes('download');
-  });
+  const isDownloadRoute = typeof window !== 'undefined' && (
+    window.location.hash.toLowerCase().includes('app') || 
+    window.location.pathname.toLowerCase().includes('/app')
+  );
 
   const [linkExpired] = useState(() => {
     if (typeof window === 'undefined') return false;
