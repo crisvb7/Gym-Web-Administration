@@ -159,7 +159,7 @@ export default function App() {
 
   // 2. KIOSKO TV
   if (isTvRoute) {
-    return <TVDisplay />;
+    return <AppDownload />;
   }
 
   // 3. PANTALLA DE DESCARGA (Solo se muestra al entrar a /app o #/app)
