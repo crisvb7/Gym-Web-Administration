@@ -30,13 +30,13 @@ import { BillingManager } from './billing-manager';
 import { TariffGenerator } from './TariffGenerator'; 
 import { PrivacyPolicy } from "./PrivacyPolicy";
 import { TVDisplay } from "./TVDisplay";
+import AppDownload from "./AppDownload";
 
 export default function App() {
   // 1. EL BYPASS INSTANTÁNEO (Detecta el link mágico en el milisegundo 0)
   const [isDirectInvite] = useState(() => {
     if (typeof window === 'undefined') return false;
     const url = window.location.href;
-    // Si la URL tiene un token o dice que es invitación, es un pase VIP directo.
     return url.includes('type=invite') || url.includes('type=recovery') || url.includes('access_token=');
   });
 
@@ -46,10 +46,18 @@ export default function App() {
     return window.location.href.includes('privacidad');
   });
 
-  // 3. DETECTOR DE RUTA DE TV USANDO HASH (#/tv) PARA GITHUB PAGES
+  // 3. DETECTOR DE RUTA DE TV USANDO HASH (#/tv)
   const [isTvRoute] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.location.hash.includes('tv');
+  });
+
+  // 4. DETECTOR ESPECÍFICO PARA LA PÁGINA DE DESCARGA (/app o #/app)
+  const [isDownloadRoute] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const href = window.location.href;
+    const hash = window.location.hash;
+    return hash.includes('app') || hash.includes('download') || href.endsWith('/app') || href.endsWith('/app/');
   });
 
   const [linkExpired] = useState(() => {
@@ -64,13 +72,13 @@ export default function App() {
   // ESTADOS DE SEGURIDAD
   const [session, setSession] = useState<any>(null);
   const [hasAccess, setHasAccess] = useState(false); 
-  const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute && !isTvRoute);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute && !isTvRoute && !isDownloadRoute);
   const [isClientPortal, setIsClientPortal] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
 
   useEffect(() => {
-    // ⚠️ ATENCIÓN AQUÍ: Si es la web de privacidad, invitación directa, tv o error, ABORTAMOS las comprobaciones.
-    if (isDirectInvite || linkExpired || isPrivacyRoute || isTvRoute) return;
+    // Si es una ruta pública o especial, abortamos comprobaciones de Auth
+    if (isDirectInvite || linkExpired || isPrivacyRoute || isTvRoute || isDownloadRoute) return;
 
     const checkStaffRole = async (currentSession: any) => {
       if (!currentSession) {
@@ -80,7 +88,6 @@ export default function App() {
         return;
       }
 
-      // Comprobamos quién es en la BD
       const { data } = await supabase
         .from('profiles')
         .select('role')
@@ -109,7 +116,7 @@ export default function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, [isDirectInvite, linkExpired, isPrivacyRoute, isTvRoute]);
+  }, [isDirectInvite, linkExpired, isPrivacyRoute, isTvRoute, isDownloadRoute]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -144,20 +151,25 @@ export default function App() {
   ];
 
   // ==========================================
-  // ORDEN DE PANTALLAS (UX MEJORADA)
+  // ORDEN DE PANTALLAS
   // ==========================================
 
-  // 1. LA PÁGINA PÚBLICA DE PRIVACIDAD
+  // 1. PRIVACIDAD
   if (isPrivacyRoute) {
     return <PrivacyPolicy />;
   }
 
-  // 1.5. PANTALLA DE TV (Limpia sin menús, usando Hash Router)
+  // 2. KIOSKO TV
   if (isTvRoute) {
     return <TVDisplay />;
   }
 
-  // 2. ERROR DE ENLACE
+  // 3. PANTALLA DE DESCARGA (Solo se muestra al entrar a /app o #/app)
+  if (isDownloadRoute) {
+    return <AppDownload />;
+  }
+
+  // 4. ERROR DE ENLACE
   if (linkExpired) {
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4">
@@ -170,12 +182,12 @@ export default function App() {
     );
   }
 
-  // 3. EL PASE VIP INSTANTÁNEO (Contraseña de cliente)
+  // 5. PASE VIP INSTANTÁNEO
   if (isDirectInvite || isClientPortal || isRecovery) {
     return <SetPasswordPage />;
   }
 
-  // 4. CARGADOR
+  // 6. CARGADOR
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -184,12 +196,12 @@ export default function App() {
     );
   }
 
-  // 5. LOGIN
+  // 7. LOGIN PRINCIPAL (Pantalla por defecto si no estás autenticado)
   if (!session || !hasAccess) {
     return <LoginPage />;
   }
 
-  // 6. DASHBOARD PRINCIPAL (Solo Staff)
+  // 8. DASHBOARD PRINCIPAL (Solo Staff)
   return (
     <div className="flex min-h-screen bg-[#0a0a0a] text-white font-sans animate-in fade-in duration-500 relative overflow-hidden">
       
@@ -254,7 +266,6 @@ export default function App() {
             );
           })}
 
-          {/* === BOTÓN KIOSKO TV (Usa #/tv para GitHub Pages) === */}
           <div className="pt-6 pb-2">
             <a
               href="/#tv"
