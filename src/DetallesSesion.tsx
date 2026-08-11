@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, MapPin, Loader2, Trash2, UserPlus, ShieldAlert, Dumbbell } from 'lucide-react';
+import { X, Users, MapPin, Loader2, Trash2, UserPlus, ShieldAlert, Dumbbell, UserX } from 'lucide-react'; // 👈 Importado UserX
 import { supabase } from './lib/supabase';
 
 // Función para recrear el color transparente del badge de disciplina
@@ -98,6 +98,68 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
     }
   };
 
+  // 👇 NUEVA FUNCIÓN: LOGICA WEB DE CONTROL DE ASISTENCIA Y SANCIONES
+  const handleMarkAsMissed = async (bookingId: string, userId: string, clientName: string) => {
+    if (!window.confirm(`¿Seguro que quieres marcar a ${clientName} como 'No Presentado'?`)) return;
+
+    try {
+      // 1. Cambiar estado de la reserva a 'MISSED'
+      const { error: bookingError } = await supabase
+        .from('class_bookings')
+        .update({ status: 'MISSED' })
+        .eq('id', bookingId);
+
+      if (bookingError) throw bookingError;
+
+      // 2. Consultar el perfil para ver el estado de faltas actual del alumno
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('missed_classes, penalized_until, is_blocked')
+        .eq('id', userId)
+        .single();
+
+      if (profileError) throw profileError;
+
+      let currentMissed = profile.missed_classes || 0;
+      let newMissed = currentMissed + 1;
+      let newPenalizedUntil = profile.penalized_until;
+      let newIsBlocked = profile.is_blocked || false;
+
+      // Regla de las 4 faltas (Sanción temporal de 7 días)
+      if (newMissed === 4) {
+        const penaltyDate = new Date();
+        penaltyDate.setDate(penaltyDate.getDate() + 7);
+        newPenalizedUntil = penaltyDate.toISOString();
+        alert(`🚨 El usuario ${clientName} ha alcanzado 4 faltas. Cuenta penalizada por 7 días.`);
+      } 
+      // Regla de las 6 faltas (Bloqueo definitivo de la app)
+      else if (newMissed >= 6) {
+        newIsBlocked = true;
+        alert(`🛑 ¡BLOQUEO COMPLETADO! El usuario ${clientName} ha alcanzado 6 faltas. Cuenta bloqueada por completo.`);
+      } else {
+        alert(`Falta anotada con éxito. ${clientName} acumula un total de ${newMissed} faltas.`);
+      }
+
+      // 3. Actualizar el perfil con las faltas calculadas
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          missed_classes: newMissed,
+          penalized_until: newPenalizedUntil,
+          is_blocked: newIsBlocked
+        })
+        .eq('id', userId);
+
+      if (updateError) throw updateError;
+
+      // 4. Sincronizar y recargar la vista
+      loadClassDetails();
+
+    } catch (error: any) {
+      alert("Error al procesar la falta de asistencia: " + error.message);
+    }
+  };
+
   const handleAddUserManually = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return alert("Selecciona un atleta primero.");
@@ -113,7 +175,7 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
     setIsAddingUser(true);
     try {
       const assignedBookingType = sesion.access_type === 'TARIFF' ? 'FIXED' : 'NORMAL';
-      const existingBooking = bookedClients.find(b => b.profiles.id === selectedUserId);
+      const existingBooking = bookedClients.find(b => b.profiles?.id === selectedUserId);
       
       if (existingBooking) {
         if (existingBooking.status === 'ACTIVE') {
@@ -143,8 +205,10 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
 
   if (!sesion) return null;
 
+  // Filtros de estados para agrupar en la interfaz
   const activeClients = bookedClients.filter(b => b.status === 'ACTIVE');
   const cancelledClients = bookedClients.filter(b => b.status === 'CANCELLED');
+  const missedClients = bookedClients.filter(b => b.status === 'MISSED'); // 👈 Nuevo filtro
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -157,7 +221,6 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
         {/* Cabecera del Modal */}
         <div className="bg-[#1a1a1a] p-6 border-b border-[#2a2a2a] relative">
           
-          {/* BOTÓN X CORREGIDO: Absoluto, arriba y a la derecha */}
           <button 
             onClick={onClose} 
             className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors bg-[#121212] p-1.5 rounded-full border border-[#2a2a2a] z-20"
@@ -165,7 +228,6 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
             <X size={20} />
           </button>
           
-          {/* Fila de insignias SUPERIORES */}
           <div className="flex items-center gap-2 mb-3 mr-10 flex-wrap">
             <span className="bg-[#E31C25]/10 text-[#E31C25] text-[10px] font-bold px-2 py-1 rounded-md uppercase border border-[#E31C25]/20">
               {new Date(sesion.start_time).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
@@ -174,12 +236,10 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
               {new Date(sesion.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(sesion.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
             
-            {/* ETIQUETA DE TIPO DE ACCESO */}
             <span className={`text-[10px] font-bold px-2 py-1 rounded-md border ${sesion.access_type === 'TARIFF' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
               {sesion.access_type === 'TARIFF' ? 'SOLO TARIFA' : 'ACCESO LIBRE'}
             </span>
 
-            {/* ETIQUETA DE CATEGORÍA (DISCIPLINA) SÚPER VISIBLE */}
             <span 
               className="text-[10px] font-bold px-2 py-1 rounded-md border flex items-center gap-1 uppercase"
               style={{
@@ -205,7 +265,6 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
           
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-white">Atletas Apuntados</h3>
-            {/* Si es TARIFA, mostramos visualmente que hay un hueco extra para tokens */}
             <span className={`text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 ${activeClients.length > sesion.max_capacity ? 'bg-red-500/10 text-red-500' : 'bg-[#E31C25]/10 text-[#E31C25]'}`}>
               {activeClients.length} / {sesion.max_capacity} {sesion.access_type === 'TARIFF' && <span className="text-emerald-500 font-bold">(+1 Token)</span>}
             </span>
@@ -228,14 +287,25 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
                     </p>
                   </div>
                   
-                  {/* Botón de Eliminar Usuario */}
-                  <button 
-                    onClick={() => handleRemoveUser(booking.id, booking.profiles?.first_name)}
-                    className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-                    title="Expulsar de la clase"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {/* 👇 NUEVO BOTÓN: Marcar como No Presentado */}
+                    <button 
+                      onClick={() => handleMarkAsMissed(booking.id, booking.profiles?.id, booking.profiles?.first_name)}
+                      className="p-2 text-gray-500 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-colors"
+                      title="Marcar como No Presentado (Falta)"
+                    >
+                      <UserX size={16} />
+                    </button>
+
+                    {/* Botón de Eliminar Usuario */}
+                    <button 
+                      onClick={() => handleRemoveUser(booking.id, booking.profiles?.first_name)}
+                      className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                      title="Expulsar de la clase"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
 
                 </div>
               ))
@@ -243,6 +313,25 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
               <p className="text-sm text-gray-500 italic text-center py-4 border border-[#2a2a2a] border-dashed rounded-xl">Nadie apuntado aún.</p>
             )}
           </div>
+
+          {/* 👇 NUEVA SECCIÓN: Historial de Faltas de Asistencia (No presentados) */}
+          {missedClients.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-xs font-bold text-amber-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <UserX size={14} /> No Presentados a esta clase
+              </h3>
+              <div className="space-y-2 opacity-80">
+                {missedClients.map((booking) => (
+                  <div key={booking.id} className="flex items-center gap-3 bg-amber-500/5 p-2 rounded-xl border border-amber-500/20 border-dashed">
+                    <span className="text-[10px] bg-amber-500/20 text-amber-400 font-bold px-2 py-0.5 rounded uppercase">Falta</span>
+                    <p className="text-sm text-gray-400 truncate">
+                      {booking.profiles?.first_name} {booking.profiles?.last_name}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Cancelaciones */}
           {cancelledClients.length > 0 && (

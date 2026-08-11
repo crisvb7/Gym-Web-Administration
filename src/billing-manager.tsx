@@ -22,6 +22,9 @@ export function BillingManager() {
   const [clientToBill, setClientToBill] = useState<any>(null);
   const [currentInvoiceItems, setCurrentInvoiceItems] = useState<{desc: string, amount: string, isFixed: boolean}[]>([]);
   
+  const MONTHS_LIST = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
+
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const DEFAULT_FEE = 50.00; 
@@ -95,6 +98,14 @@ export function BillingManager() {
   };
 
   // --- MODAL DE FACTURACIÓN DINÁMICA ---
+  const toggleMonth = (month: string) => {
+    setSelectedMonths(prev => 
+      prev.includes(month) 
+        ? prev.filter(m => m !== month) 
+        : [...prev, month]
+    );
+  };
+
   const openBillingModal = (client: any) => {
     setClientToBill(client);
     
@@ -136,8 +147,8 @@ export function BillingManager() {
 
     setIsProcessingPdf(true);
     const monthStr = currentMonth.toISOString().split('T')[0];
-    const combinedDesc = currentInvoiceItems.map(i => i.desc).join(' + ');
-
+    const combinedDesc = currentInvoiceItems.map(i => i.desc).join(' + ') + (selectedMonths.length > 0 ? ` (Meses: ${selectedMonths.join(', ')})` : '');
+    
     try {
       const { data: insertedData, error: insertError } = await supabase.from('invoices').insert([{
         user_id: clientToBill.id,
@@ -217,6 +228,8 @@ export function BillingManager() {
     .map(c => ({ ...c, invoice: invoices.find(inv => inv.user_id === c.id) }));
 
   const capitalizedMonthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase());
+  
+  // SOLUCIÓN: Usamos la fecha real, no el 10 hardcodeado
   const currentDay = today.getDate();
 
   return (
@@ -275,6 +288,33 @@ export function BillingManager() {
                 <Plus size={16}/> AÑADIR CONCEPTO EXTRA
               </button>
             </div>
+
+            <div className="border-y border-[#2a2a2a] py-5 px-6"> 
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-3 block">
+                  Meses que incluye este pago
+                </label>
+                <div className="grid grid-cols-4 gap-3">
+                  {MONTHS_LIST.map(month => (
+                    <button
+                      key={month}
+                      type="button"
+                      onClick={() => toggleMonth(month)}
+                      className={`p-2 text-xs font-bold rounded-lg border transition-all ${
+                        selectedMonths.includes(month) 
+                          ? 'bg-[#E31C25] border-[#E31C25] text-white' 
+                          : 'bg-[#1a1a1a] border-[#2a2a2a] text-gray-400 hover:border-gray-500'
+                      }`}
+                    >
+                      {month}
+                    </button>
+                  ))}
+                </div>
+                {selectedMonths.length > 0 && (
+                  <p className="text-[10px] text-gray-400 mt-2">
+                    Total meses seleccionados: <span className="text-white font-bold">{selectedMonths.length}</span>
+                  </p>
+                )}
+              </div>
 
             {/* SECCIÓN DE TOTALES CON IVA */}
             <div className="p-6 bg-[#121212] border-t border-[#2a2a2a] flex justify-between items-center">
@@ -335,6 +375,7 @@ export function BillingManager() {
           </thead>
           <tbody className="divide-y divide-[#2a2a2a]">
             {displayData.map((data) => {
+              // SOLUCIÓN: Calculamos si está congelado en base a si tiene factura, no el estado del perfil
               const hasInvoiceThisMonth = !!data.invoice;
               const isFrozen = !hasInvoiceThisMonth && currentDay >= 6;
 

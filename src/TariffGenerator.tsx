@@ -155,7 +155,8 @@ export function TariffGenerator() {
       const { error: resetError } = await supabase
         .from('profiles')
         .update({ payment_status: 'pending' })
-        .eq('role', 'client'); // Solo afecta a los clientes, no al staff
+        .eq('role', 'client')
+        .lt('paid_until', new Date().toISOString());
 
       if (resetError) {
         console.error("Aviso: Las clases se crearon, pero hubo un error al resetear los pagos:", resetError);
