@@ -11,7 +11,10 @@ import {
   Loader2,
   Menu, 
   X,
-  MonitorPlay 
+  Activity, 
+  Speaker,
+  Megaphone,
+  MonitorPlay // <-- Añadido el icono para la TV
 } from "lucide-react";
 import { supabase } from './lib/supabase';
 
@@ -29,8 +32,11 @@ import { LoginPage } from "./login";
 import { BillingManager } from './billing-manager';
 import { TariffGenerator } from './TariffGenerator'; 
 import { PrivacyPolicy } from "./PrivacyPolicy";
-import { TVDisplay } from "./TVDisplay";
-import AppDownload from "./AppDownload";
+import { TVDisplay } from "./TVDisplay"; // <-- Añadida la importación del Kiosko TV
+
+// Pantalla de descargas y anuncios
+import { AppDownload } from "./AppDownload";
+import GestionAnuncios from './anuncios';
 
 export default function App() {
   // 1. EL BYPASS INSTANTÁNEO (Detecta el link mágico en el milisegundo 0)
@@ -46,17 +52,17 @@ export default function App() {
     return window.location.href.includes('privacidad');
   });
 
-  // 3. DETECTOR DE RUTA DE TV USANDO HASH (#/tv)
+  // 3. DETECTOR DE LA PÁGINA DE DESCARGA DE LA APP
+  const [isAppDownloadRoute] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.pathname === '/app' || window.location.pathname === '/app/';
+  });
+
+  // 4. NUEVO: DETECTOR DE LA TV USANDO HASH (#/tv) PARA GITHUB PAGES
   const [isTvRoute] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.location.hash.includes('tv');
   });
-
-  // 4. DETECTOR ESPECÍFICO PARA LA PÁGINA DE DESCARGA (/app o #/app) MEJORADO
-  const isDownloadRoute = typeof window !== 'undefined' && (
-    window.location.hash.toLowerCase().includes('app') || 
-    window.location.pathname.toLowerCase().includes('/app')
-  );
 
   const [linkExpired] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -70,13 +76,14 @@ export default function App() {
   // ESTADOS DE SEGURIDAD
   const [session, setSession] = useState<any>(null);
   const [hasAccess, setHasAccess] = useState(false); 
-  const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute && !isTvRoute && !isDownloadRoute);
+  // ⚠️ Añadimos isTvRoute al bypass para no cargar el Auth
+  const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute && !isAppDownloadRoute && !isTvRoute);
   const [isClientPortal, setIsClientPortal] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
 
   useEffect(() => {
-    // Si es una ruta pública o especial, abortamos comprobaciones de Auth
-    if (isDirectInvite || linkExpired || isPrivacyRoute || isTvRoute || isDownloadRoute) return;
+    // ⚠️ ATENCIÓN AQUÍ: Añadimos isTvRoute al bypass de comprobaciones
+    if (isDirectInvite || linkExpired || isPrivacyRoute || isAppDownloadRoute || isTvRoute) return;
 
     const checkStaffRole = async (currentSession: any) => {
       if (!currentSession) {
@@ -86,6 +93,7 @@ export default function App() {
         return;
       }
 
+      // Comprobamos quién es en la BD
       const { data } = await supabase
         .from('profiles')
         .select('role')
@@ -114,7 +122,7 @@ export default function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, [isDirectInvite, linkExpired, isPrivacyRoute, isTvRoute, isDownloadRoute]);
+  }, [isDirectInvite, linkExpired, isPrivacyRoute, isAppDownloadRoute, isTvRoute]); // ⚠️ Añadido a dependencias
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -134,6 +142,7 @@ export default function App() {
       case 'nutrition': return <NutritionManager />;
       case 'workouts': return <WorkoutsPage />;
       case 'billing': return <BillingManager />; 
+      case 'anuncios': return <GestionAnuncios />;
       default: return <DashboardOverview />;
     }
   };
@@ -146,28 +155,29 @@ export default function App() {
     { id: 'nutrition', label: 'Nutrición', icon: Apple },
     { id: 'workouts', label: 'Entrenamientos', icon: Dumbbell },
     { id: 'billing', label: 'Facturación', icon: DollarSign }, 
+    { id: 'anuncios', label: 'Anuncios', icon: Megaphone },
   ];
 
   // ==========================================
-  // ORDEN DE PANTALLAS
+  // ORDEN DE PANTALLAS (UX MEJORADA)
   // ==========================================
 
-  // 1. PRIVACIDAD
+  // 1. LA PÁGINA PÚBLICA DE PRIVACIDAD
   if (isPrivacyRoute) {
     return <PrivacyPolicy />;
   }
 
-  // 2. KIOSKO TV
+  // 1.5. LA PÁGINA DE DESCARGA DE LA APP (Pública)
+  if (isAppDownloadRoute) {
+    return <AppDownload />;
+  }
+
+  // 1.7. PANTALLA DE TV (Limpia sin menús, usando Hash Router)
   if (isTvRoute) {
-    return <AppDownload />;
+    return <TVDisplay />;
   }
 
-  // 3. PANTALLA DE DESCARGA (Solo se muestra al entrar a /app o #/app)
-  if (isDownloadRoute) {
-    return <AppDownload />;
-  }
-
-  // 4. ERROR DE ENLACE
+  // 2. ERROR DE ENLACE
   if (linkExpired) {
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center p-4">
@@ -180,12 +190,12 @@ export default function App() {
     );
   }
 
-  // 5. PASE VIP INSTANTÁNEO
+  // 3. EL PASE VIP INSTANTÁNEO (Contraseña de cliente)
   if (isDirectInvite || isClientPortal || isRecovery) {
     return <SetPasswordPage />;
   }
 
-  // 6. CARGADOR
+  // 4. CARGADOR
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
@@ -194,12 +204,12 @@ export default function App() {
     );
   }
 
-  // 7. LOGIN PRINCIPAL (Pantalla por defecto si no estás autenticado)
+  // 5. LOGIN
   if (!session || !hasAccess) {
     return <LoginPage />;
   }
 
-  // 8. DASHBOARD PRINCIPAL (Solo Staff)
+  // 6. DASHBOARD PRINCIPAL (Solo Staff)
   return (
     <div className="flex min-h-screen bg-[#0a0a0a] text-white font-sans animate-in fade-in duration-500 relative overflow-hidden">
       
@@ -226,7 +236,7 @@ export default function App() {
         <div className="p-5 flex justify-between items-center">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 shrink-0 bg-[#E31C25] rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(227,28,37,0.4)]">
-              <Activity className="text-white w-6 h-6" />
+              <ActivityIcon className="text-white w-6 h-6" />
             </div>
             <div className="flex flex-col justify-center min-w-0">
               <span className="text-lg font-black tracking-tighter truncate leading-none">
@@ -264,9 +274,10 @@ export default function App() {
             );
           })}
 
-          <div className="pt-6 pb-2">
+          {/* === BOTÓN KIOSKO TV === */}
+          <div className="pt-6 pb-2 border-t border-[#2a2a2a] mt-4">
             <a
-              href="/#tv"
+              href="#/tv"
               target="_blank"
               rel="noopener noreferrer"
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group text-gray-400 hover:bg-[#1a1a1a] hover:text-white"
@@ -311,7 +322,7 @@ export default function App() {
   );
 }
 
-function Activity(props: any) {
+function ActivityIcon(props: any) {
   return (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
   );

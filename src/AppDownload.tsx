@@ -1,7 +1,7 @@
 import React from 'react';
 import { Apple, Play, Download } from 'lucide-react';
 
-export default function AppDownload() {
+export function AppDownload() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-5 text-center font-sans">
       <div className="bg-white p-10 rounded-3xl shadow-xl max-w-md w-full">

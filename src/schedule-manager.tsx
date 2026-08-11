@@ -258,6 +258,34 @@ export function ScheduleManager() {
     });
   };
 
+  // --- NUEVA LÓGICA: Algoritmo de Colisión ---
+  const processOverlappingEvents = (dayEvents: any[]) => {
+    const sorted = [...dayEvents].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+    
+    return sorted.map((event) => {
+      const eventStart = new Date(event.start_time).getTime();
+      const eventEnd = new Date(event.end_time).getTime();
+
+      const overlaps = sorted.filter(e => {
+        const eStart = new Date(e.start_time).getTime();
+        const eEnd = new Date(e.end_time).getTime();
+        return eStart < eventEnd && eEnd > eventStart;
+      });
+      
+      const totalOverlaps = overlaps.length; 
+      const overlapIndex = overlaps.findIndex(e => e.id === event.id); 
+      
+      return {
+        ...event,
+        overlapStyles: {
+          width: `calc(${100 / totalOverlaps}% - 4px)`, // Restamos 4px para dejar un pequeño margen derecho y no pegarse al borde de la celda
+          left: `${(100 / totalOverlaps) * overlapIndex}%`,
+          borderRight: totalOverlaps > 1 && overlapIndex < totalOverlaps - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' 
+        }
+      };
+    });
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 relative">
       
@@ -282,7 +310,6 @@ export function ScheduleManager() {
           </div>
 
           <div className="flex gap-2 w-full sm:w-auto">
-            {/* NUEVO BOTÓN: AJUSTES DE DISCIPLINAS */}
             <button onClick={() => setShowSettingsModal(true)} className="bg-[#1a1a1a] border border-[#2a2a2a] text-gray-400 px-4 py-2.5 rounded-xl hover:text-white hover:bg-[#2a2a2a] transition-colors shrink-0">
               <Settings size={20} />
             </button>
@@ -321,14 +348,16 @@ export function ScheduleManager() {
                   const classesInSlot = getClassForSlot(dayIndex, currentHour);
                   const isToday = getLocalDateString(new Date()) === getLocalDateString(weekDates[dayIndex]);
                   
+                  // APLICAMOS EL ALGORITMO DE COLISIÓN AQUÍ
+                  const processedClasses = processOverlappingEvents(classesInSlot);
+
                   return (
                     <div key={dayIndex} className={`border-r border-[#2a2a2a] last:border-r-0 hover:bg-[#E31C25]/5 transition-colors p-1 relative ${isToday ? 'bg-[#E31C25]/[0.02]' : ''}`} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, dayIndex, currentHour)}>
-                      {classesInSlot.map((cls) => {
+                      {processedClasses.map((cls) => {
                         const durationMins = Math.round((new Date(cls.end_time).getTime() - new Date(cls.start_time).getTime()) / 60000);
                         const cardHeight = (durationMins / 60) * SLOT_HEIGHT_PX;
                         const topOffset = (new Date(cls.start_time).getMinutes() / 60) * SLOT_HEIGHT_PX + 4; 
                         
-                        // BUSCAMOS EL COLOR EN LA BASE DE DATOS Y CONSTRUIMOS EL ESTILO EN TIEMPO REAL
                         const dColor = disciplines.find(d => d.name === cls.discipline)?.color || '#E31C25';
 
                         return (
@@ -341,12 +370,16 @@ export function ScheduleManager() {
                             }}
                             onDragEnd={(e) => { (e.target as HTMLElement).style.opacity = "1"; }}
                             onClick={() => setSelectedClass(cls)}
-                            className="absolute left-1 right-1 border rounded-lg p-2 group transition-all cursor-grab active:cursor-grabbing hover:scale-[1.02] z-10 overflow-hidden"
+                            className="absolute border rounded-lg p-2 group transition-all cursor-grab active:cursor-grabbing hover:scale-[1.02] z-10 overflow-hidden"
                             style={{ 
-                              height: `calc(${cardHeight}px - 8px)`, top: `${topOffset}px`,
-                              backgroundColor: hexToRgba(dColor, 0.1), // Fondo semitransparente
-                              borderColor: hexToRgba(dColor, 0.3),     // Borde visible
-                              color: dColor,                           // Color del texto y sombras
+                              height: `calc(${cardHeight}px - 8px)`, 
+                              top: `${topOffset}px`,
+                              width: cls.overlapStyles.width,           // Estilos dinámicos de colisión
+                              left: `calc(4px + ${cls.overlapStyles.left})`, // Estilos dinámicos de colisión + margen
+                              borderRight: cls.overlapStyles.borderRight,
+                              backgroundColor: hexToRgba(dColor, 0.1), 
+                              borderColor: hexToRgba(dColor, 0.3),     
+                              color: dColor,                           
                               boxShadow: `0 0 15px ${hexToRgba(dColor, 0.1)}` 
                             }}
                           >
@@ -356,7 +389,11 @@ export function ScheduleManager() {
                             </div>
                             <div className="text-[10px] font-black opacity-80 mb-0.5 pointer-events-none tracking-tight">{new Date(cls.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} {' - '} {new Date(cls.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                             <div className="text-xs font-bold leading-tight mb-1 truncate pointer-events-none" style={{ color: '#fff' }}>{cls.title}</div>
-                            <div className="text-[10px] opacity-70 truncate flex items-center gap-1 pointer-events-none font-medium"><Users size={10} className="shrink-0"/> {cls.trainer}</div>
+                            
+                            {/* Ocultar entrenador si el contenedor es muy estrecho para que no colapse el diseño */}
+                            {cls.overlapStyles.width === 'calc(100% - 4px)' && (
+                                <div className="text-[10px] opacity-70 truncate flex items-center gap-1 pointer-events-none font-medium"><Users size={10} className="shrink-0"/> {cls.trainer}</div>
+                            )}
                           </div>
                         );
                       })}
@@ -376,7 +413,6 @@ export function ScheduleManager() {
             <button onClick={() => setShowSettingsModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><X size={24} /></button>
             <h2 className="text-xl font-bold mb-6 text-white flex items-center gap-2"><Palette className="text-[#E31C25]" /> Categorías y Colores</h2>
             
-            {/* Lista actual */}
             <div className="space-y-2 mb-8 max-h-[40vh] overflow-y-auto pr-2">
               {disciplines.length === 0 ? (
                 <p className="text-gray-500 text-sm italic">No hay disciplinas creadas.</p>
@@ -393,13 +429,11 @@ export function ScheduleManager() {
               )}
             </div>
 
-            {/* Añadir nueva */}
             <form onSubmit={handleAddDiscipline} className="bg-[#1a1a1a] border border-[#2a2a2a] p-4 rounded-2xl">
               <h3 className="text-sm font-bold text-white mb-3">Añadir nueva categoría</h3>
               <div className="flex gap-3">
                 <input required value={newDisciplineName} onChange={e => setNewDisciplineName(e.target.value)} placeholder="Ej: Yoga" className="flex-1 bg-[#121212] border border-[#2a2a2a] px-3 py-2 rounded-xl text-sm text-white focus:border-[#E31C25] outline-none" />
                 <div className="relative">
-                  {/* El selector de color nativo mola, pero lo estilizamos */}
                   <input type="color" required value={newDisciplineColor} onChange={e => setNewDisciplineColor(e.target.value)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                   <div className="w-10 h-10 rounded-xl border-2 border-[#2a2a2a] flex items-center justify-center shadow-inner" style={{ backgroundColor: newDisciplineColor }}></div>
                 </div>

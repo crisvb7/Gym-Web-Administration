@@ -1,35 +1,64 @@
 import React, { useEffect, useState } from "react";
-import { Users, Apple, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck, FileSignature, CheckCircle } from "lucide-react";
+import { Users, Apple, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck, FileSignature, CheckCircle, RefreshCw, Search } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) => void }) {
+
+  const [showRecipesModal, setShowRecipesModal] = useState(false);
+  const [viewingRecipeAthlete, setViewingRecipeAthlete] = useState<any>(null);
+  const [athleteRecipes, setAthleteRecipes] = useState<any[]>([]);
+  const [loadingRecipes, setLoadingRecipes] = useState(false);
+  const [filterRecipeStartDate, setFilterRecipeStartDate] = useState<string>('');
+  const [filterRecipeEndDate, setFilterRecipeEndDate] = useState<string>('');
+
+  // Estados para Tokens Manuales
+  const [showTokenModal, setShowTokenModal] = useState(false);
+  const [tokenAthlete, setTokenAthlete] = useState<any>(null);
+  const [tokenAmount, setTokenAmount] = useState<number>(1);
+  const [isSavingTokens, setIsSavingTokens] = useState(false);
+
+  // Estados para Pagos Multimes
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentAthlete, setPaymentAthlete] = useState<any>(null);
+  const [monthsPaid, setMonthsPaid] = useState<number>(1);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [activeView, setActiveView] = useState<'clientes' | 'equipo'>('clientes');
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showWorkoutsModal, setShowWorkoutsModal] = useState(false);
   const [showKcalModal, setShowKcalModal] = useState(false);
   const [showTariffModal, setShowTariffModal] = useState(false); 
-  const [showContractViewModal, setShowContractViewModal] = useState(false); // NUEVO ESTADO MODAL CONTRATO
+  const [showContractViewModal, setShowContractViewModal] = useState(false);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   
   const [newAtleta, setNewAtleta] = useState({ first_name: '', last_name: '', email: '', role: 'client' });
   const [editAtleta, setEditAtleta] = useState<any>(null);
   const [viewingAthlete, setViewingAthlete] = useState<any>(null);
-  const [contractAthlete, setContractAthlete] = useState<any>(null); // NUEVO ESTADO ATLETA CONTRATO
+  const [contractAthlete, setContractAthlete] = useState<any>(null);
   const [athleteWorkouts, setAthleteWorkouts] = useState<any[]>([]);
+  
+  // Estados para el filtro de fechas del historial de entrenamientos
+  const [filterStartDate, setFilterStartDate] = useState<string>('');
+  const [filterEndDate, setFilterEndDate] = useState<string>('');
+  
+  // Estados para la edición rápida de entrenamientos
+  const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
+  const [editVolume, setEditVolume] = useState({ sets: '', reps: '', weight: '', note: '' });
+  const [isUpdatingWorkout, setIsUpdatingWorkout] = useState(false);
   
   const [kcalAthlete, setKcalAthlete] = useState<any>(null);
   const [kcalGoal, setKcalGoal] = useState<string>('2500');
   const [isSavingKcal, setIsSavingKcal] = useState(false);
 
-  // ESTADOS PARA TARIFA
+  // ESTADOS PARA TARIFA (Modificado a un array de objetos para guardar Día + Hora)
   const [tariffAthlete, setTariffAthlete] = useState<any>(null);
   const [rateDays, setRateDays] = useState<number>(0); 
-  const [fixedDays, setFixedDays] = useState<number[]>([]);
+  const [fixedDays, setFixedDays] = useState<any[]>([]);
   const [isSavingTariff, setIsSavingTariff] = useState(false);
 
   const [loadingWorkouts, setLoadingWorkouts] = useState(false);
@@ -49,8 +78,20 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
   useEffect(() => { fetchMembers(); }, []);
 
   const displayedMembers = members.filter(member => {
-    if (activeView === 'clientes') return member.role === 'client' || !member.role;
-    return member.role === 'trainer' || member.role === 'admin';
+    // 1. Filtrado de pestañas
+    const matchesView = activeView === 'clientes' 
+      ? member.role === 'client' || !member.role
+      : member.role === 'trainer' || member.role === 'admin';
+
+    if (!matchesView) return false;
+
+    // 2. Filtrado de buscador por texto
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    const fullName = `${member.first_name || ''} ${member.last_name || ''}`.toLowerCase();
+    const email = (member.email || '').toLowerCase();
+
+    return fullName.includes(term) || email.includes(term);
   });
 
   const handleAddAtleta = async (e: React.FormEvent) => {
@@ -124,8 +165,14 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
         if (classesError) throw classesError;
 
         const classesToBook = futureClasses?.filter(c => {
-          const classDay = new Date(c.start_time).getDay();
-          return fixedDays.includes(classDay);
+          const classDate = new Date(c.start_time);
+          const classDay = classDate.getDay();
+          
+          const hours = String(classDate.getHours()).padStart(2, '0');
+          const minutes = String(classDate.getMinutes()).padStart(2, '0');
+          const classTime = `${hours}:${minutes}`;
+
+          return fixedDays.some(d => d.day === classDay && d.time === classTime);
         }) || [];
 
         let successfullyBookedCount = 0;
@@ -162,7 +209,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
           }
         }
 
-        let finalMessage = `¡Todo listo!\nSe ha guardado la tarifa para ${tariffAthlete.first_name} y se ha inscrito en ${successfullyBookedCount} clases futuras.`;
+        let finalMessage = `¡Todo listo!\nSe ha guardado la tarifa para ${tariffAthlete.first_name} y se ha inscrito en ${successfullyBookedCount} clases futuras que coinciden en día y hora exacta.`;
         if (forcedOverbookCount > 0) finalMessage += `\n\n⚠️ NOTA: Se ha forzado la plaza y superado el aforo máximo en ${forcedOverbookCount} de estas clases.`;
         alert(finalMessage);
       }
@@ -174,15 +221,20 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
   };
 
   const toggleDay = (dayNum: number) => {
-    if (fixedDays.includes(dayNum)) {
-      setFixedDays(fixedDays.filter(d => d !== dayNum));
+    const exists = fixedDays.some(d => d.day === dayNum);
+    if (exists) {
+      setFixedDays(fixedDays.filter(d => d.day !== dayNum));
     } else {
       if (fixedDays.length >= rateDays) {
         alert(`Has seleccionado una tarifa de ${rateDays} días. No puedes marcar más días en la semana.`);
         return;
       }
-      setFixedDays([...fixedDays, dayNum]);
+      setFixedDays([...fixedDays, { day: dayNum, time: "18:00" }]); 
     }
+  };
+
+  const handleUpdateTime = (dayNum: number, timeStr: string) => {
+    setFixedDays(fixedDays.map(d => d.day === dayNum ? { ...d, time: timeStr } : d));
   };
 
   const handleSaveKcal = async (e: React.FormEvent) => {
@@ -232,10 +284,247 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
   };
 
   const handleViewWorkouts = async (member: any) => {
-    setViewingAthlete(member); setShowWorkoutsModal(true); setLoadingWorkouts(true);
-    const { data, error } = await supabase.from('workout_logs').select(`*, exercises ( name ) `).eq('user_id', member.id).order('logged_at', { ascending: false });
-    if (!error && data) setAthleteWorkouts(data);
-    setLoadingWorkouts(false);
+    if (!member) return;
+    setViewingAthlete(member); 
+    setShowWorkoutsModal(true); 
+    setLoadingWorkouts(true);
+
+    try {
+      const [assignmentsResponse, logsResponse] = await Promise.all([
+        supabase
+          .from('workout_assignments')
+          .select(`*, exercises ( name ), coach_notes`)
+          .eq('user_id', member.id),
+        supabase
+          .from('workout_logs')
+          .select(`*, exercises ( name )`)
+          .eq('user_id', member.id)
+      ]);
+
+      const unifiedWorkouts: any[] = [];
+      const processedLogIds = new Set();
+
+      const assignments = assignmentsResponse.data ? [...assignmentsResponse.data] : [];
+      const logs = logsResponse.data ? [...logsResponse.data] : [];
+
+      assignments.forEach((assignment) => {
+        let isCompleted = assignment.is_completed === true || assignment.is_completed === "true" || assignment.status === "COMPLETED" || assignment.status === "DONE";
+        
+        const matchingLog = logs.find(log => {
+          if (processedLogIds.has(log.id)) return false;
+          if (log.assignment_id === assignment.id || log.workout_assignment_id === assignment.id) return true;
+          if (!isCompleted && log.exercise_id === assignment.exercise_id) return true;
+          return false;
+        });
+
+        const targetDate = assignment.assigned_date || assignment.date || assignment.scheduled_date || assignment.created_at;
+
+        unifiedWorkouts.push({
+          ...assignment,
+          source: 'assignment',
+          isCompletedVisual: isCompleted || !!matchingLog,
+          dateToOrder: targetDate, 
+          display_sets: matchingLog?.sets || assignment.target_sets || 0,
+          display_reps: matchingLog?.reps || assignment.target_reps || 0,
+          display_weight: matchingLog?.weight_kg || assignment.target_weight || 0
+        });
+        
+        if (matchingLog) processedLogIds.add(matchingLog.id);
+      });
+
+      logs.forEach((log) => {
+        if (!processedLogIds.has(log.id)) {
+          unifiedWorkouts.push({
+            ...log,
+            source: 'log',
+            isCompletedVisual: true,
+            dateToOrder: log.logged_at || log.date || log.created_at,
+            display_sets: log.sets || log.series,
+            display_reps: log.reps || log.repeticiones,
+            display_weight: log.weight_kg || log.kg || log.peso
+          });
+        }
+      });
+
+      unifiedWorkouts.sort((a, b) => new Date(b.dateToOrder).getTime() - new Date(a.dateToOrder).getTime());
+      setAthleteWorkouts(unifiedWorkouts);
+    } catch (error) {
+      console.error("Error al sincronizar e integrar entrenamientos:", error);
+    } finally {
+      setLoadingWorkouts(false);
+    }
+  };
+
+  const handleUpdateWorkout = async (workout: any) => {
+    setIsUpdatingWorkout(true);
+    try {
+      const table = workout.source === 'log' ? 'workout_logs' : 'workout_assignments';
+      let updateData: any = {};
+
+      if (table === 'workout_assignments') {
+        updateData = {
+          target_sets: editVolume.sets,
+          target_reps: editVolume.reps,
+          target_weight: editVolume.weight,
+          coach_notes: editVolume.note
+        };
+      } else {
+        updateData = {
+          sets: editVolume.sets,
+          reps: editVolume.reps,
+          weight_kg: editVolume.weight
+        };
+      }
+
+      const { error } = await supabase
+        .from(table)
+        .update(updateData)
+        .eq('id', workout.id);
+
+      if (error) throw error;
+      
+      setEditingWorkoutId(null);
+      handleViewWorkouts(viewingAthlete); 
+    } catch (error: any) {
+      alert("Error al modificar: " + error.message);
+    } finally {
+      setIsUpdatingWorkout(false);
+    }
+  };
+
+  const handleDeleteWorkout = async (workout: any) => {
+    if (!window.confirm("¿Estás seguro de que deseas eliminar permanentemente este registro de ejercicio?")) return;
+    
+    try {
+      const table = workout.source === 'log' ? 'workout_logs' : 'workout_assignments';
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .eq('id', workout.id);
+
+      if (error) throw error;
+      
+      alert("Ejercicio eliminado correctamente.");
+      handleViewWorkouts(viewingAthlete);
+    } catch (error: any) {
+      alert("Error al eliminar el ejercicio: " + error.message);
+    }
+  };
+
+  const formatWorkoutDate = (dateString: string) => {
+    if (!dateString) return "-";
+    if (dateString.length >= 10 && dateString.includes('-') && !dateString.includes('T')) {
+      const [year, month, day] = dateString.split('-');
+      return `${day}/${month}/${year}`;
+    }
+    try {
+      return new Date(dateString).toLocaleDateString('es-ES');
+    } catch (e) {
+      return dateString;
+    }
+  };
+
+  const filteredWorkouts = athleteWorkouts.filter(workout => {
+    if (!filterStartDate && !filterEndDate) return true;
+    
+    const cleanWorkoutDate = typeof workout.dateToOrder === 'string' 
+      ? workout.dateToOrder.split('T')[0] 
+      : new Date(workout.dateToOrder).toISOString().split('T')[0];
+      
+    if (filterStartDate && cleanWorkoutDate < filterStartDate) return false;
+    if (filterEndDate && cleanWorkoutDate > filterEndDate) return false;
+    
+    return true;
+  });
+
+  const handleAddTokens = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingTokens(true);
+    try {
+      const newTotal = (tokenAthlete.recovery_tokens || 0) + tokenAmount;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ recovery_tokens: newTotal })
+        .eq('id', tokenAthlete.id);
+
+      if (error) throw error;
+      alert(`Se han añadido ${tokenAmount} tokens a ${tokenAthlete.first_name}.`);
+      setShowTokenModal(false);
+      fetchMembers();
+    } catch (error: any) {
+      alert("Error al añadir tokens: " + error.message);
+    } finally {
+      setIsSavingTokens(false);
+    }
+  };
+
+  const handleRegisterPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingPayment(true);
+    try {
+      const currentDate = new Date();
+      const baseDate = (paymentAthlete.paid_until && new Date(paymentAthlete.paid_until) > currentDate) 
+        ? new Date(paymentAthlete.paid_until) 
+        : currentDate;
+      
+      baseDate.setMonth(baseDate.getMonth() + monthsPaid);
+      
+      const { error } = await supabase
+        .from('profiles')
+        .update({ 
+          paid_until: baseDate.toISOString(),
+          payment_status: 'paid',
+          is_frozen: false
+        })
+        .eq('id', paymentAthlete.id);
+      
+      if (error) throw error;
+      alert(`Pago registrado. Cuenta activa hasta: ${baseDate.toLocaleDateString()}`);
+      setShowPaymentModal(false);
+      fetchMembers();
+    } catch (error: any) {
+      alert("Error al registrar pago: " + error.message);
+    } finally {
+      setIsSavingPayment(false);
+    }
+  };
+
+  const handleViewRecipes = async (member: any) => {
+    if (!member) return;
+    setViewingRecipeAthlete(member);
+    setShowRecipesModal(true);
+    setLoadingRecipes(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('assigned_meals')
+        .select(`*, recipes ( name, calories, image_url )`)
+        .eq('user_id', member.id)
+        .order('assigned_date', { ascending: false });
+
+      if (error) throw error;
+      setAthleteRecipes(data || []);
+    } catch (error) {
+      console.error("Error al cargar recetas:", error);
+    } finally {
+      setLoadingRecipes(false);
+    }
+  };
+
+  const handleDeleteAssignedRecipe = async (assignedId: string) => {
+    if (!window.confirm('¿Seguro que quieres eliminar esta receta del historial?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('assigned_meals')
+        .delete()
+        .eq('id', assignedId);
+
+      if (error) throw error;
+      setAthleteRecipes(prev => prev.filter(recipe => recipe.id !== assignedId));
+    } catch (error: any) {
+      alert("Error al eliminar la receta: " + error.message);
+    }
   };
 
   return (
@@ -255,14 +544,34 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
       </div>
 
       <div className="flex gap-2 border-b border-[#2a2a2a] pb-px">
-        <button onClick={() => setActiveView('clientes')} className={`flex items-center gap-2 px-6 py-3 font-bold text-sm transition-all border-b-2 ${activeView === 'clientes' ? 'text-[#E31C25] border-[#E31C25]' : 'text-gray-400 border-transparent hover:text-gray-200'}`}>
+        <button onClick={() => { setActiveView('clientes'); setSearchTerm(""); }} className={`flex items-center gap-2 px-6 py-3 font-bold text-sm transition-all border-b-2 ${activeView === 'clientes' ? 'text-[#E31C25] border-[#E31C25]' : 'text-gray-400 border-transparent hover:text-gray-200'}`}>
           <Users className="w-4 h-4" /> Atletas
           <span className="ml-2 bg-[#2a2a2a] text-xs px-2 py-0.5 rounded-full text-white">{members.filter(m => m.role === 'client' || !m.role).length}</span>
         </button>
-        <button onClick={() => setActiveView('equipo')} className={`flex items-center gap-2 px-6 py-3 font-bold text-sm transition-all border-b-2 ${activeView === 'equipo' ? 'text-[#E31C25] border-[#E31C25]' : 'text-gray-400 border-transparent hover:text-gray-200'}`}>
+        <button onClick={() => { setActiveView('equipo'); setSearchTerm(""); }} className={`flex items-center gap-2 px-6 py-3 font-bold text-sm transition-all border-b-2 ${activeView === 'equipo' ? 'text-[#E31C25] border-[#E31C25]' : 'text-gray-400 border-transparent hover:text-gray-200'}`}>
           <Shield className="w-4 h-4" /> Equipo Técnico
           <span className="ml-2 bg-[#2a2a2a] text-xs px-2 py-0.5 rounded-full text-white">{members.filter(m => m.role === 'trainer' || m.role === 'admin').length}</span>
         </button>
+      </div>
+
+      {/* COMPONENTE DE BÚSQUEDA DINÁMICA */}
+      <div className="relative mt-2">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
+        <input
+          type="text"
+          placeholder="Buscar por nombre, apellidos o correo electrónico..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full bg-[#121212] border border-[#2a2a2a] text-white rounded-xl py-3 pl-12 pr-10 text-sm focus:border-[#E31C25] outline-none transition-colors placeholder:text-gray-500"
+        />
+        {searchTerm && (
+          <button 
+            onClick={() => setSearchTerm("")} 
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl shadow-xl overflow-x-auto lg:overflow-visible min-h-[250px]">
@@ -285,7 +594,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                 <td className="p-3 md:p-5 flex items-center gap-3 md:gap-4">
                   <div className="w-10 h-10 md:w-12 md:h-12 shrink-0 bg-[#121212] rounded-xl flex items-center justify-center text-[#E31C25] font-bold border border-[#2a2a2a] shadow-sm group-hover:border-[#E31C25]/30 transition-colors relative">
                     {member.first_name?.[0] || 'U'}
-                    {/* Indicador de contrato firmado */}
                     {member.contract_accepted && (
                       <div className="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 shadow-lg" title="Contrato Firmado">
                         <CheckCircle size={10} className="text-black" />
@@ -339,7 +647,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                         
                         {(member.role === 'client' || !member.role) && (
                           <>
-                            {/* NUEVO BOTÓN: VER CONTRATO (Solo sale si está firmado) */}
                             {member.contract_accepted && (
                               <button 
                                 onClick={() => { setContractAthlete(member); setShowContractViewModal(true); setOpenDropdownId(null); }}
@@ -353,7 +660,13 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                               onClick={() => { 
                                 setTariffAthlete(member); 
                                 setRateDays(member.rate_days || 0); 
-                                setFixedDays(member.fixed_days || []);
+                                const rawFixedDays = member.fixed_days || [];
+                                const mappedFixedDays = rawFixedDays.map((d: any) => {
+                                  if (typeof d === 'number') return { day: d, time: '18:00' };
+                                  return d;
+                                });
+                                
+                                setFixedDays(mappedFixedDays);
                                 setShowTariffModal(true); 
                                 setOpenDropdownId(null); 
                               }}
@@ -368,6 +681,20 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                             >
                               <Flame size={16} /> Plan Nutricional
                             </button>
+
+                            <button 
+                              onClick={() => { setTokenAthlete(member); setTokenAmount(1); setShowTokenModal(true); setOpenDropdownId(null); }}
+                              className="w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors"
+                            >
+                              <RefreshCw size={16} /> Añadir Tokens Extra
+                            </button>
+
+                            <button 
+                              onClick={() => { setPaymentAthlete(member); setMonthsPaid(1); setShowPaymentModal(true); setOpenDropdownId(null); }}
+                              className="w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors"
+                            >
+                              <CalendarIcon size={16} /> Registrar Pago
+                            </button>
                             
                             <button 
                               onClick={() => { handleViewWorkouts(member); setOpenDropdownId(null); }}
@@ -375,6 +702,14 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                             >
                               <Dumbbell size={16} /> Historial Entrenos
                             </button>
+
+                            <button 
+                              onClick={() => { handleViewRecipes(member); setOpenDropdownId(null); }}
+                              className="w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors"
+                            >
+                              <Apple size={16} /> Historial de Recetas
+                            </button>
+
                             <div className="h-px bg-[#2a2a2a] w-full my-1"></div>
                           </>
                         )}
@@ -405,7 +740,75 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
       {/* --- MODALES --- */}
 
-      {/* NUEVO MODAL: VISOR DE CONTRATO FIRMADO */}
+      {/* MODAL DE NUEVO REGISTRO */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <UserPlus className="text-[#E31C25]" /> Nuevo Registro
+              </h2>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-white bg-[#121212] p-2 rounded-lg border border-[#2a2a2a]">
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddAtleta} className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Nombre</label>
+                <input
+                  type="text"
+                  required
+                  value={newAtleta.first_name}
+                  onChange={(e) => setNewAtleta({...newAtleta, first_name: e.target.value})}
+                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm focus:border-[#E31C25] outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Apellidos</label>
+                <input
+                  type="text"
+                  required
+                  value={newAtleta.last_name}
+                  onChange={(e) => setNewAtleta({...newAtleta, last_name: e.target.value})}
+                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm focus:border-[#E31C25] outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Email</label>
+                <input
+                  type="email"
+                  required
+                  value={newAtleta.email}
+                  onChange={(e) => setNewAtleta({...newAtleta, email: e.target.value})}
+                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm focus:border-[#E31C25] outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Rol de Acceso</label>
+                <select
+                  value={newAtleta.role}
+                  onChange={(e) => setNewAtleta({...newAtleta, role: e.target.value})}
+                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm focus:border-[#E31C25] outline-none"
+                >
+                  <option value="client">Atleta (Cliente)</option>
+                  <option value="trainer">Entrenador (Equipo)</option>
+                  <option value="admin">Administrador (Equipo)</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-[#E31C25] text-white py-3 rounded-xl font-bold hover:bg-[#A6151B] transition-colors mt-2"
+              >
+                Enviar Invitación
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VISOR DE CONTRATO FIRMADO */}
       {showContractViewModal && contractAthlete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-2xl h-[85vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
@@ -426,25 +829,37 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                 <h3 className="text-white font-bold text-xl mb-6 text-center">Normativa del Centro Daniel Miranda | En Movimiento</h3>
                 
                 <p className="text-gray-300 mb-6 leading-relaxed text-justify">
-                  El usuario <strong>{contractAthlete.first_name} {contractAthlete.last_name}</strong> (con correo electrónico {contractAthlete.email}) declara haber leído, comprendido y aceptado las siguientes condiciones para la utilización de las instalaciones y de la aplicación móvil del centro.
+                  El usuario <strong>{contractAthlete.first_name} {contractAthlete.last_name}</strong> (con correo electrónico {contractAthlete.email}) declara haber leído, comprendido y aceptado las siguientes conditions para la utilización de las instalaciones y de la aplicación móvil del centro.
                 </p>
 
                 <div className="space-y-6 text-gray-300 text-sm leading-relaxed text-justify">
                   <div>
-                    <h4 className="text-white font-bold text-base mb-2">1. Pagos y Congelación de Cuenta</h4>
-                    <p>Las cuotas deben ser abonadas en los primeros 5 días del mes. En caso de impago, el día 6 la cuenta de la aplicación quedará automáticamente congelada, impidiendo el acceso a los entrenamientos y reservas hasta la regularización de la deuda.</p>
+                    <h4 className="text-white font-bold text-base mb-2">1. Normas generales de asistencia:</h4>
+                    <p>• El cliente se compromete a asistir puntualmente a las sesiones contratadas. Se establece un margen máximo de 10 minutos desde el inicio de la clase para incorporarse a la misma.</p>
+                    <p>• Las clases deberán cancelarse con una antelación mínima de 4 horas respecto al inicio de la sesión programada.</p>
+                    <p>• En caso de no asistencia a la clase, la reserva debe cancelarse. Si el usuario acumula inasistencias reiteradas sin haber efectuado la cancelación previa, el sistema se reserva el derecho de bloquear temporalmente sus futuras reservas para asegurar el correcto flujo de aforo.</p>
+                    <p>• El cliente acepta expresamente el número de sesiones mensuales asociadas a cada tarifa contratada: 8 clases mensuales para la tarifa de 2 días por semana; 12 clases mensuales para la tarifa de 3 días por semana; 16 clases mensuales para la tarifa de 4 días por semana; y 20 clases mensuales para la tarifa de 5 días por semana.</p>
                   </div>
                   <div>
-                    <h4 className="text-white font-bold text-base mb-2">2. Fianza de Inscripción</h4>
-                    <p>El usuario abonará una fianza inicial según las condiciones establecidas por el centro deportivo. Dicha fianza estará sujeta a la política de devoluciones vigente y se empleará como garantía ante posibles impagos o daños en el material.</p>
+                    <h4 className="text-white font-bold text-base mb-2">2. Condiciones de pago y fianza:</h4>
+                    <p>Los pagos deberán realizarse antes del día 5 de cada mes. En caso de impago o retraso en el abono de la cuota correspondiente, el día 6 la aplicación de reservas quedará temporalmente congelada hasta que se regularice la situación.</p>
+                    <p>Asimismo, el cliente deberá abonar una fianza de 50 euros en el momento de formalizar su inscripción en el centro. Dicha fianza será devuelta siempre que el cliente comunique su decisión de abandonar el centro antes del día 20 del mes en curso. En caso de no realizar dicha comunicación dentro del plazo establecido, el centro podrá retener la fianza.</p>
                   </div>
                   <div>
-                    <h4 className="text-white font-bold text-base mb-2">3. Política de Cancelación</h4>
-                    <p>Las reservas de clases deben cancelarse con la antelación estipulada. Si el usuario acumula inasistencias reiteradas sin haber efectuado la cancelación previa, el sistema se reserva el derecho de bloquear temporalmente sus futuras reservas para asegurar el correcto flujo de aforo.</p>
+                    <h4 className="text-white font-bold text-base mb-2">3. Exención de responsabilidad:</h4>
+                    <p>El usuario declara de forma expresa encontrarse en condiciones físicas óptimas para la práctica deportiva y asume la total responsabilidad de cualquier lesión, accident o percance de salud derivado del mal uso de las instalaciones, eximiendo a Daniel Miranda y a su equipo de cualquier responsabilidad legal.</p>
                   </div>
                   <div>
-                    <h4 className="text-white font-bold text-base mb-2">4. Exención de Responsabilidad</h4>
-                    <p>El usuario declara de forma expresa encontrarse en condiciones físicas óptimas para la práctica deportiva y asume la total responsabilidad de cualquier lesión, accidente o percance de salud derivado del uso de las instalaciones, eximiendo a Daniel Miranda y a su equipo de cualquier responsabilidad legal.</p>
+                    <h4 className="text-white font-bold text-base mb-2">4. Protección de datos personales:</h4>
+                    <p>De conformidad con la normativa vigente en materia de protección de datos, el cliente autoriza al centro a tratar sus datos personales exclusivamente con fines administrativos, organizativos y relacionados con la prestación del servicio contratado. Los datos no serán cedidos a terceros salvo obligación legal.</p>
+                  </div>
+                  <div>
+                    <h4 className="text-white font-bold text-base mb-2">5. Autorización de uso de imágenes:</h4>
+                    <p>El cliente autoriza al centro a captar y utilizar fotografías y/o vídeos realizados durante las actividades y entrenamientos con fines promocionales y de comunicación en redes sociales, página web o materiales corporativos del centro. En caso de no autorizar dicho uso, deberá comunicarlo expresamente por escrito.</p>
+                  </div>
+                  <div>
+                    <h4 className="text-white font-bold text-base mb-2">6. Declaración de conformidad:</h4>
+                    <p>Mediante la firma del presente documento, el cliente declara haber leído, comprendido y aceptado todas las normas, condiciones y políticas del centro de entrenamiento personal.</p>
                   </div>
                 </div>
               </div>
@@ -471,7 +886,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
         </div>
       )}
       
-      {/* MODAL: GESTIÓN DE TARIFA */}
+      {/* GESTIÓN DE TARIFA (MODIFICADO CON SELECCIÓN DE HORA INDIVIDUAL) */}
       {showTariffModal && tariffAthlete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-200">
@@ -482,63 +897,204 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
               <button onClick={() => setShowTariffModal(false)} className="text-gray-400 hover:text-white bg-[#121212] p-2 rounded-full"><X size={20} /></button>
             </div>
             
-            <p className="text-gray-400 text-sm mb-6">Configura los días fijos para <span className="text-white font-bold">{tariffAthlete.first_name}</span>. Al guardar, se le inscribirá automáticamente o se cancelarán sus plazas.</p>
-
-            <form onSubmit={handleSaveTariff} className="space-y-6">
+            <p className="text-gray-400 text-sm mb-6">Configura los días fijos y las horas de las clases para <span className="text-white font-bold">{tariffAthlete.first_name}</span>. Al guardar, se le inscribirá automáticamente solo en las clases que coincidan en día y hora exacta.</p>
+            
+            <form onSubmit={handleSaveTariff} className="space-y-5">
               <div>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 block">Días por Semana (Tarifa)</label>
-                <div className="grid grid-cols-5 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { setRateDays(0); setFixedDays([]); }}
-                    className={`py-3 rounded-xl border text-sm font-bold transition-all ${rateDays === 0 ? 'bg-red-500/20 border-red-500 text-red-500' : 'bg-[#121212] border-[#2a2a2a] text-gray-400 hover:border-gray-500'}`}
-                  >
-                    0
-                  </button>
-                  {[2, 3, 4, 5].map((num) => (
-                    <button
-                      key={num} type="button"
-                      onClick={() => { setRateDays(num); setFixedDays(fixedDays.slice(0, num)); }}
-                      className={`py-3 rounded-xl border text-sm font-bold transition-all ${rateDays === num ? 'bg-[#E31C25] border-[#E31C25] text-white' : 'bg-[#121212] border-[#2a2a2a] text-gray-400 hover:border-gray-500'}`}
-                    >
-                      {num}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ opacity: rateDays === 0 ? 0.3 : 1, pointerEvents: rateDays === 0 ? 'none' : 'auto' }}>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 block flex items-center justify-between">
-                  <span>Selección de Días</span>
-                  <span className={fixedDays.length === rateDays ? 'text-[#E31C25]' : 'text-gray-500'}>{fixedDays.length} / {rateDays || 0} asignados</span>
-                </label>
-                <div className="grid grid-cols-7 gap-1">
-                  {[ { id: 1, label: 'L' }, { id: 2, label: 'M' }, { id: 3, label: 'X' }, { id: 4, label: 'J' }, { id: 5, label: 'V' }, { id: 6, label: 'S' }, { id: 0, label: 'D' } ].map((day) => (
-                    <button
-                      key={day.id} type="button"
-                      onClick={() => toggleDay(day.id)}
-                      className={`aspect-square rounded-lg border text-sm font-bold flex items-center justify-center transition-all ${
-                        fixedDays.includes(day.id) ? 'bg-[#E31C25]/20 border-[#E31C25] text-[#E31C25]' : 'bg-[#121212] border-[#2a2a2a] text-gray-500 hover:bg-[#2a2a2a]'
-                      }`}
-                    >
-                      {day.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-2 flex gap-3">
-                <button type="button" onClick={() => setShowTariffModal(false)} className="flex-1 py-4 bg-[#121212] border border-[#2a2a2a] rounded-xl text-gray-400 font-bold hover:bg-[#2a2a2a] transition-colors">Cancelar</button>
-                <button 
-                  type="submit" 
-                  disabled={isSavingTariff || (rateDays > 0 && fixedDays.length !== rateDays)} 
-                  className={`flex-1 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
-                    (rateDays === 0 || fixedDays.length === rateDays) && !isSavingTariff 
-                      ? (rateDays === 0 ? 'bg-red-500 text-white hover:bg-red-600 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'bg-[#E31C25] text-white hover:bg-[#A6151B] shadow-[0_0_15px_rgba(227,28,37,0.3)]') 
-                      : 'bg-[#2a2a2a] text-gray-500'
-                  }`}
+                <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Días por Semana</label>
+                <select
+                  value={rateDays}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    setRateDays(val);
+                    setFixedDays([]); 
+                  }}
+                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm focus:border-[#E31C25] outline-none"
                 >
-                  {isSavingTariff ? <Loader2 className="w-5 h-5 animate-spin" /> : rateDays === 0 ? 'Quitar Tarifa' : 'Asignar Tarifa'}
+                  <option value={0}>Sin Tarifa (Cancelar clases fijas)</option>
+                  <option value={1}>1 Día a la semana</option>
+                  <option value={2}>2 Días a la semana</option>
+                  <option value={3}>3 Días a la semana</option>
+                  <option value={4}>4 Días a la semana</option>
+                  <option value={5}>5 Días a la semana</option>
+                  <option value={6}>6 Días a la semana</option>
+                  <option value={7}>7 Días a la semana</option>
+                </select>
+              </div>
+
+              {rateDays > 0 && (
+                <div className="space-y-2.5 max-h-[260px] overflow-y-auto pr-1">
+                  <label className="text-xs text-gray-400 font-bold uppercase block mb-1">
+                    Selecciona los días fijos ({fixedDays.length}/{rateDays}) y su hora
+                  </label>
+                  {[
+                    { num: 1, label: 'Lunes' },
+                    { num: 2, label: 'Martes' },
+                    { num: 3, label: 'Miércoles' },
+                    { num: 4, label: 'Jueves' },
+                    { num: 5, label: 'Viernes' },
+                    { num: 6, label: 'Sábado' },
+                    { num: 0, label: 'Domingo' }
+                  ].map((d) => {
+                    const foundConfig = fixedDays.find(fd => fd.day === d.num);
+                    const isSelected = !!foundConfig;
+                    return (
+                      <div 
+                        key={d.num}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                          isSelected 
+                            ? 'bg-[#E31C25]/5 border-[#E31C25]/40' 
+                            : 'bg-[#121212] border-[#2a2a2a] opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleDay(d.num)}
+                          className="flex items-center gap-2.5 text-left flex-1"
+                        >
+                          <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
+                            isSelected ? 'bg-[#E31C25] border-[#E31C25] text-white' : 'border-gray-600 bg-transparent'
+                          }`}>
+                            {isSelected && <span className="text-[10px] font-bold">✓</span>}
+                          </div>
+                          <span className={`text-xs font-semibold ${isSelected ? 'text-white' : 'text-gray-400'}`}>
+                            {d.label}
+                          </span>
+                        </button>
+
+                        {isSelected && (
+                          <div className="flex items-center gap-1.5 animate-in fade-in slide-in-from-right-2 duration-150">
+                            <span className="text-[10px] text-gray-500 font-medium">Hora:</span>
+                            <input
+                              type="time"
+                              required
+                              value={foundConfig.time}
+                              onChange={(e) => handleUpdateTime(d.num, e.target.value)}
+                              className="bg-[#121212] border border-[#3a3a3a] p-1 rounded text-white text-center text-xs font-bold outline-none focus:border-[#E31C25] [color-scheme:dark]"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSavingTariff || (rateDays > 0 && fixedDays.length !== rateDays)}
+                className="w-full bg-[#E31C25] text-white py-3 rounded-xl font-bold hover:bg-[#A6151B] transition-colors disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+              >
+                {isSavingTariff && <Loader2 className="w-4 h-4 animate-spin" />}
+                Guardar Configuración
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PLAN NUTRICIONAL */}
+      {showKcalModal && kcalAthlete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Flame className="text-orange-500" /> Objetivo Calórico
+              </h2>
+              <button onClick={() => setShowKcalModal(false)} className="text-gray-400 hover:text-white bg-[#121212] p-2 rounded-lg border border-[#2a2a2a]">
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveKcal} className="space-y-4">
+              <div>
+                <p className="text-sm text-gray-400 mb-4">Ajusta las calorías diarias recomendadas para <span className="text-white font-bold">{kcalAthlete.first_name}</span>.</p>
+                <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Kcal Diarias</label>
+                <input
+                  type="number"
+                  required
+                  value={kcalGoal}
+                  onChange={(e) => setKcalGoal(e.target.value)}
+                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm focus:border-[#E31C25] outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSavingKcal}
+                className="w-full bg-[#E31C25] text-white py-3 rounded-xl font-bold hover:bg-[#A6151B] transition-colors flex items-center justify-center gap-2 mt-2"
+              >
+                {isSavingKcal && <Loader2 className="w-4 h-4 animate-spin" />}
+                Actualizar Objetivo
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR CUENTA */}
+      {showEditModal && editAtleta && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Edit2 className="text-[#E31C25]" size={20} /> Editar Cuenta
+              </h2>
+              <button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-white bg-[#121212] p-2 rounded-lg border border-[#2a2a2a]">
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditAtleta} className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Nombre</label>
+                <input
+                  type="text"
+                  required
+                  value={editAtleta.first_name || ''}
+                  onChange={(e) => setEditAtleta({...editAtleta, first_name: e.target.value})}
+                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm focus:border-[#E31C25] outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Apellidos</label>
+                <input
+                  type="text"
+                  required
+                  value={editAtleta.last_name || ''}
+                  onChange={(e) => setEditAtleta({...editAtleta, last_name: e.target.value})}
+                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm focus:border-[#E31C25] outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 font-bold uppercase block mb-1">Rol de Acceso</label>
+                <select
+                  value={editAtleta.role || 'client'}
+                  onChange={(e) => setEditAtleta({...editAtleta, role: e.target.value})}
+                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-4 py-2.5 text-sm focus:border-[#E31C25] outline-none"
+                >
+                  <option value="client">Atleta (Cliente)</option>
+                  <option value="trainer">Entrenador (Equipo)</option>
+                  <option value="admin">Administrador (Equipo)</option>
+                </select>
+              </div>
+
+              <div className="pt-2 border-t border-[#2a2a2a] flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={handleResetPassword}
+                  disabled={isResetting}
+                  className="w-full bg-zinc-800 text-gray-300 py-2.5 rounded-xl text-xs font-bold hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <KeyRound size={14} />
+                  {isResetting ? "Enviando..." : "Enviar restablecimiento de contraseña"}
+                </button>
+
+                <button
+                  type="submit"
+                  className="w-full bg-[#E31C25] text-white py-3 rounded-xl font-bold hover:bg-[#A6151B] transition-colors mt-2"
+                >
+                  Guardar Cambios
                 </button>
               </div>
             </form>
@@ -546,82 +1102,356 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
         </div>
       )}
 
-      {/* Modal Kcal */}
-      {showKcalModal && kcalAthlete && (
+      {/* MODAL HISTORIAL DE ENTRENAMIENTOS CON FILTROS DE TEXTO Y BOTÓN RESTABLECER */}
+      {showWorkoutsModal && viewingAthlete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-sm rounded-3xl p-8 text-center shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 bg-[#E31C25]/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-[#E31C25]/20"><Flame className="text-[#E31C25] w-8 h-8" /></div>
-            <h2 className="text-xl font-bold text-white mb-1">Plan Nutricional</h2>
-            <form onSubmit={handleSaveKcal}>
-              <div className="mb-8 mt-4 bg-[#121212] border-2 border-[#2a2a2a] focus-within:border-[#E31C25] rounded-2xl py-6 flex flex-col items-center justify-center transition-colors">
-                <input type="number" required value={kcalGoal} onChange={(e) => setKcalGoal(e.target.value)} className="bg-transparent text-center text-5xl font-bold text-white outline-none w-full [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-2 pointer-events-none">Kcal / Día</span>
+          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-2xl h-[85vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+            
+            <div className="p-6 bg-[#121212] border-b border-[#2a2a2a] flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <Dumbbell className="text-[#E31C25]" size={24} />
+                <div>
+                  <h2 className="text-lg font-bold text-white leading-tight">Historial de Entrenamientos</h2>
+                  <p className="text-sm text-gray-400">Atleta: {viewingAthlete.first_name} {viewingAthlete.last_name}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowWorkoutsModal(false)} className="text-gray-500 hover:text-white bg-[#1a1a1a] p-2 rounded-full transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-4 bg-[#141414] border-b border-[#2a2a2a] flex flex-col sm:flex-row items-end gap-3 shrink-0">
+              <div className="flex-1 grid grid-cols-2 gap-3 w-full">
+                <div>
+                  <label className="text-[10px] text-gray-500 font-bold uppercase ml-1 block mb-1">Desde</label>
+                  <input 
+                    type="date" 
+                    value={filterStartDate} 
+                    onChange={(e) => setFilterStartDate(e.target.value)} 
+                    className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#E31C25]" 
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 font-bold uppercase ml-1 block mb-1">Hasta</label>
+                  <input 
+                    type="date" 
+                    value={filterEndDate} 
+                    onChange={(e) => setFilterEndDate(e.target.value)} 
+                    className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#E31C25]" 
+                  />
+                </div>
+              </div>
+              
+              {(filterStartDate || filterEndDate) && (
+                <button
+                  type="button"
+                  onClick={() => { setFilterStartDate(''); setFilterEndDate(''); }}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-gray-300 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 h-[36px] w-full sm:w-auto border border-[#333] hover:border-gray-500 shrink-0"
+                >
+                  <RefreshCw size={12} /> Limpiar
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-3">
+              {loadingWorkouts ? (
+                <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                  <Loader2 className="w-8 h-8 animate-spin mb-4 text-[#E31C25]" />
+                  <p>Sincronizando entrenamientos...</p>
+                </div>
+              ) : filteredWorkouts.length === 0 ? (
+                <div className="text-center py-12 text-gray-500 h-full flex flex-col items-center justify-center">
+                  <Dumbbell className="w-12 h-12 mb-3 opacity-20" />
+                  <p>No hay entrenamientos para este rango de días o asignaciones.</p>
+                </div>
+              ) : (
+                filteredWorkouts.map((workout, idx) => {
+                  const isCompleted = workout.isCompletedVisual;
+                  
+                  return (
+                    <div key={workout.id || idx} className="bg-[#121212] border border-[#2a2a2a] p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <p className="text-white font-bold">{workout.exercises?.name || 'Ejercicio sin nombre'}</p>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${workout.source === 'log' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'}`}>
+                            {workout.source === 'log' ? 'Autónomo' : 'Planificado'}
+                          </span>
+                        </div>
+
+                        {editingWorkoutId === workout.id ? (
+                          <div className="flex flex-col gap-3 bg-[#1a1a1a] p-3 rounded-lg border border-[#E31C25]/50 mt-2 w-full max-w-sm">
+                            <div className="grid grid-cols-3 gap-2">
+                              <div>
+                                <label className="text-[10px] text-gray-500 font-bold uppercase ml-1">Sets</label>
+                                <input type="text" value={editVolume.sets} onChange={(e) => setEditVolume({...editVolume, sets: e.target.value})} className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-md px-2 py-1.5 text-xs focus:outline-none focus:border-[#E31C25]" />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-gray-500 font-bold uppercase ml-1">Reps</label>
+                                <input type="text" value={editVolume.reps} onChange={(e) => setEditVolume({...editVolume, reps: e.target.value})} className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-md px-2 py-1.5 text-xs focus:outline-none focus:border-[#E31C25]" />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-gray-500 font-bold uppercase ml-1">Peso</label>
+                                <input type="text" value={editVolume.weight} onChange={(e) => setEditVolume({...editVolume, weight: e.target.value})} className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-md px-2 py-1.5 text-xs focus:outline-none focus:border-[#E31C25]" />
+                              </div>
+                            </div>
+
+                            {workout.source === 'assignment' && (
+                              <div>
+                                <label className="text-[10px] text-gray-500 font-bold uppercase ml-1">Notas del Coach</label>
+                                <textarea 
+                                  value={editVolume.note || ''} 
+                                  onChange={(e) => setEditVolume({...editVolume, note: e.target.value})}
+                                  className="w-full bg-[#121212] text-white border border-[#2a2a2a] rounded-md px-2 py-1.5 text-xs focus:outline-none focus:border-[#E31C25] mt-1"
+                                  rows={2}
+                                />
+                              </div>
+                            )}
+
+                            <div className="flex justify-end gap-2">
+                              <button type="button" onClick={() => setEditingWorkoutId(null)} className="px-3 py-1 text-xs text-gray-400 hover:text-white">Cancelar</button>
+                              <button type="button" onClick={() => handleUpdateWorkout(workout)} disabled={isUpdatingWorkout} className="px-3 py-1 text-xs bg-[#E31C25] text-white font-bold rounded-md hover:bg-[#A6151B] disabled:opacity-50 flex items-center gap-1.5">
+                                {isUpdatingWorkout && <Loader2 size={12} className="animate-spin" />}
+                                Guardar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-2 mt-2">
+                            <div className="flex items-center gap-2">
+                              <div className="flex gap-4 text-xs text-gray-400 bg-[#171717] px-3 py-1.5 rounded-lg border border-[#222] w-fit">
+                                <span>Sets: <b className="text-white">{workout.display_sets || 0}</b></span>
+                                <span>Reps: <b className="text-white">{workout.display_reps || 0}</b></span>
+                                <span>Peso: <b className="text-white">{workout.display_weight || 0} kg</b></span>
+                              </div>
+                              
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  setEditingWorkoutId(workout.id);
+                                  setEditVolume({
+                                    sets: workout.display_sets?.toString() || '',
+                                    reps: workout.display_reps?.toString() || '',
+                                    weight: workout.display_weight?.toString() || '',
+                                    note: workout.coach_notes || ''
+                                  });
+                                }}
+                                className="p-1.5 text-gray-500 hover:text-[#E31C25] bg-[#1a1a1a] border border-[#2a2a2a] hover:border-[#E31C25]/30 rounded-lg transition-all"
+                                title="Editar pesos/repeticiones"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+
+                              <button 
+                                type="button"
+                                onClick={() => handleDeleteWorkout(workout)}
+                                className="p-1.5 text-gray-500 hover:text-red-500 bg-[#1a1a1a] border border-[#2a2a2a] hover:border-red-500/30 rounded-lg transition-all"
+                                title="Eliminar este ejercicio"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                            
+                            {workout.coach_notes && (
+                              <p className="text-[11px] text-[#E31C25] bg-[#E31C25]/5 border border-[#E31C25]/10 px-2 py-1 rounded w-fit italic">
+                                Nota: {workout.coach_notes}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        <p className="text-[10px] text-gray-500 mt-2 flex items-center gap-1">
+                          <CalendarIcon size={11} /> {formatWorkoutDate(workout.dateToOrder)}
+                        </p>
+                      </div>
+                      
+                      <div className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider shrink-0 self-start sm:self-center ${isCompleted ? 'text-emerald-400 bg-emerald-400/10' : 'text-yellow-500 bg-yellow-500/10'}`}>
+                        {isCompleted ? 'Completado' : 'Pendiente'}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/*Modal para Añadir Tokens Manualmente */}
+      {showTokenModal && tokenAthlete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#121212] border border-[#2a2a2a] rounded-2xl w-full max-w-md overflow-hidden">
+            <div className="p-4 border-b border-[#2a2a2a] flex justify-between items-center">
+              <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                <RefreshCw className="text-[#E31C25]" size={20} /> Añadir Tokens
+              </h3>
+              <button onClick={() => setShowTokenModal(false)} className="text-gray-400 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleAddTokens} className="p-6">
+              <p className="text-gray-400 text-sm mb-4">
+                Vas a añadir tokens a la cuenta de <span className="text-white font-bold">{tokenAthlete.first_name}</span>.
+              </p>
+              <div className="mb-6">
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 block">
+                  Cantidad de tokens
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={tokenAmount}
+                  onChange={(e) => setTokenAmount(parseInt(e.target.value) || 1)}
+                  className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none transition-colors"
+                />
               </div>
               <div className="flex gap-3">
-                <button type="button" onClick={() => setShowKcalModal(false)} className="flex-1 py-4 bg-[#121212] border border-[#2a2a2a] rounded-xl text-gray-400 font-bold hover:bg-zinc-800 transition-colors">Cancelar</button>
-                <button type="submit" disabled={isSavingKcal} className="flex-1 py-4 bg-[#E31C25] text-white rounded-xl font-bold hover:bg-[#A6151B] transition-all flex items-center justify-center gap-2">{isSavingKcal ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirmar'}</button>
+                <button type="button" onClick={() => setShowTokenModal(false)} className="flex-1 bg-transparent border border-[#2a2a2a] text-white py-3 rounded-xl font-bold hover:bg-[#1a1a1a] transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isSavingTokens} className="flex-1 bg-[#E31C25] text-white py-3 rounded-xl font-bold hover:bg-red-700 disabled:opacity-50 transition-colors">
+                  {isSavingTokens ? 'Guardando...' : 'Añadir Tokens'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal Añadir Atleta */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-white">Nuevo Registro</h2><button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-white bg-[#121212] p-2 rounded-full"><X size={20} /></button></div>
-            <form onSubmit={handleAddAtleta} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Nombre</label><input required className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" value={newAtleta.first_name} onChange={(e) => setNewAtleta({...newAtleta, first_name: e.target.value})} /></div>
-                <div><label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Apellido</label><input required className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" value={newAtleta.last_name} onChange={(e) => setNewAtleta({...newAtleta, last_name: e.target.value})} /></div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Correo Electrónico</label>
-                <div className="relative"><Mail className="absolute left-3 top-3.5 text-gray-500" size={18} /><input required type="email" className="w-full bg-[#121212] border border-[#2a2a2a] p-3 pl-10 rounded-xl text-white focus:border-[#E31C25] outline-none" value={newAtleta.email} onChange={(e) => setNewAtleta({...newAtleta, email: e.target.value})} /></div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Rol</label>
-                <select className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-xl text-white outline-none focus:border-[#E31C25] appearance-none" value={newAtleta.role} onChange={(e) => setNewAtleta({...newAtleta, role: e.target.value})}>
-                  <option value="client">Atleta (Cliente)</option><option value="trainer">Entrenador (Staff)</option><option value="admin">Administrador Principal</option>
-                </select>
-              </div>
-              <div className="pt-4 flex gap-3"><button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-4 bg-[#121212] border border-[#2a2a2a] rounded-xl text-gray-400 font-bold hover:bg-[#2a2a2a]">Cancelar</button><button type="submit" className="flex-1 py-4 bg-[#E31C25] text-white rounded-xl font-bold hover:bg-[#A6151B]">Enviar Invitación</button></div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Editar Atleta */}
-      {showEditModal && editAtleta && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-white">Editar Perfil</h2><button onClick={() => setShowEditModal(false)} className="text-gray-400 hover:text-white bg-[#121212] p-2 rounded-full"><X size={20} /></button></div>
-            <div className="mb-6 p-4 bg-[#121212] border border-[#2a2a2a] rounded-xl"><button type="button" onClick={handleResetPassword} disabled={isResetting} className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-transparent border border-[#2a2a2a] text-gray-300 rounded-xl hover:border-white hover:text-white text-sm font-bold"><KeyRound size={16} />{isResetting ? 'Enviando...' : 'Restablecer Contraseña'}</button></div>
-            <form onSubmit={handleEditAtleta} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Nombre</label><input required className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" value={editAtleta.first_name || ''} onChange={(e) => setEditAtleta({...editAtleta, first_name: e.target.value})} /></div>
-                <div><label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Apellido</label><input required className="w-full bg-[#121212] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none" value={editAtleta.last_name || ''} onChange={(e) => setEditAtleta({...editAtleta, last_name: e.target.value})} /></div>
-              </div>
-              <div className="pt-4 flex gap-3"><button type="button" onClick={() => setShowEditModal(false)} className="flex-1 py-4 bg-[#121212] border border-[#2a2a2a] rounded-xl text-gray-400 font-bold hover:bg-[#2a2a2a]">Cancelar</button><button type="submit" className="flex-1 py-4 bg-[#E31C25] text-white rounded-xl font-bold hover:bg-[#A6151B]">Guardar Cambios</button></div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Ver Entrenos */}
-      {showWorkoutsModal && viewingAthlete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex justify-end">
-          <div className="bg-[#1a1a1a] border-l border-[#2a2a2a] w-full max-w-md h-full p-8 shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-300">
-            <div className="flex justify-between items-center mb-8">
-              <div><h2 className="text-xl font-bold text-white">Historial</h2><p className="text-[#E31C25] text-sm mt-1">{viewingAthlete.first_name}</p></div>
-              <button onClick={() => setShowWorkoutsModal(false)} className="text-gray-400 hover:text-white bg-[#2a2a2a] p-2 rounded-full"><X size={20} /></button>
+      {/* Modal para Registrar Pago Multimes */}
+      {showPaymentModal && paymentAthlete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#121212] border border-[#2a2a2a] rounded-2xl w-full max-w-md overflow-hidden">
+            <div className="p-4 border-b border-[#2a2a2a] flex justify-between items-center">
+              <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                <CalendarIcon className="text-[#E31C25]" size={20} /> Registrar Pago
+              </h3>
+              <button onClick={() => setShowPaymentModal(false)} className="text-gray-400 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
             </div>
-            <div className="space-y-4">
-              {loadingWorkouts ? <p className="text-gray-500 text-center py-10">Buscando...</p> : athleteWorkouts.length === 0 ? <p className="text-gray-500 text-center py-10">Sin entrenamientos.</p> : athleteWorkouts.map((workout: any) => (
-                <div key={workout.id} className="bg-[#121212] border border-[#2a2a2a] rounded-xl p-4"><h3 className="font-bold text-white text-lg">{workout.name || 'Sin título'}</h3><div className="flex gap-4 mt-3 text-xs text-gray-400"><div className="flex items-center gap-1"><CalendarIcon size={14} className="text-[#E31C25]" /> {new Date(workout.created_at).toLocaleDateString('es-ES')}</div></div></div>
-              ))}
+            <form onSubmit={handleRegisterPayment} className="p-6">
+              <p className="text-gray-400 text-sm mb-4">
+                Registrando nuevo pago para <span className="text-white font-bold">{paymentAthlete.first_name}</span>.
+              </p>
+              <div className="mb-6">
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 block">
+                  Meses a sumar
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  required
+                  value={monthsPaid}
+                  onChange={(e) => setMonthsPaid(parseInt(e.target.value) || 1)}
+                  className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white focus:border-[#E31C25] outline-none transition-colors"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setShowPaymentModal(false)} className="flex-1 bg-transparent border border-[#2a2a2a] text-white py-3 rounded-xl font-bold hover:bg-[#1a1a1a] transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isSavingPayment} className="flex-1 bg-[#E31C25] text-white py-3 rounded-xl font-bold hover:bg-red-700 disabled:opacity-50 transition-colors">
+                  {isSavingPayment ? 'Guardando...' : 'Registrar Pago'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Historial de Recetas */}
+      {showRecipesModal && viewingRecipeAthlete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#121212] border border-[#2a2a2a] rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+
+            <div className="p-4 border-b border-[#2a2a2a] flex justify-between items-center bg-[#121212]">
+              <div>
+                <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                  <Apple className="text-[#E31C25]" size={20} /> Historial de Recetas
+                </h3>
+                <p className="text-sm text-gray-400">{viewingRecipeAthlete.first_name} {viewingRecipeAthlete.last_name}</p>
+              </div>
+              <button onClick={() => setShowRecipesModal(false)} className="text-gray-400 hover:text-white bg-[#1a1a1a] p-2 rounded-full transition-colors">
+                <X size={20} />
+              </button>
             </div>
+
+            <div className="p-4 border-b border-[#2a2a2a] flex gap-4 bg-[#1a1a1a]">
+              <div className="flex-1">
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Desde</label>
+                <input 
+                  type="date" 
+                  value={filterRecipeStartDate} 
+                  onChange={(e) => setFilterRecipeStartDate(e.target.value)} 
+                  className="w-full bg-[#121212] border border-[#2a2a2a] p-2 rounded-lg text-white text-sm outline-none focus:border-[#E31C25]" 
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Hasta</label>
+                <input 
+                  type="date" 
+                  value={filterRecipeEndDate} 
+                  onChange={(e) => setFilterRecipeEndDate(e.target.value)} 
+                  className="w-full bg-[#121212] border border-[#2a2a2a] p-2 rounded-lg text-white text-sm outline-none focus:border-[#E31C25]" 
+                />
+              </div>
+            </div>
+      
+            <div className="p-4 overflow-y-auto flex-1 bg-black">
+              {loadingRecipes ? (
+                <div className="flex justify-center py-10">
+                  <div className="w-8 h-8 border-4 border-[#E31C25] border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : athleteRecipes.length === 0 ? (
+                <div className="text-center py-10 text-gray-500">
+                  <Apple size={40} className="mx-auto mb-3 opacity-20" />
+                  <p>No hay recetas asignadas a este atleta.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {athleteRecipes.filter(recipe => {
+                    if (!filterRecipeStartDate && !filterRecipeEndDate) return true;
+                    const recipeDate = recipe.assigned_date;
+                    if (filterRecipeStartDate && recipeDate < filterRecipeStartDate) return false;
+                    if (filterRecipeEndDate && recipeDate > filterRecipeEndDate) return false;
+                    return true;
+                  }).map((recipe) => (
+                    <div key={recipe.id} className="bg-[#121212] border border-[#2a2a2a] p-4 rounded-xl flex items-center gap-4 relative group">
+                      {recipe.recipes?.image_url ? (
+                        <img src={recipe.recipes.image_url} className="w-12 h-12 rounded-lg object-cover" alt="Receta" />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-[#1a1a1a] flex items-center justify-center">
+                          <Apple size={20} className="text-gray-500" />
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-white font-bold">{recipe.recipes?.name || 'Receta eliminada'}</p>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase bg-orange-500/10 text-orange-400">
+                            {recipe.meal_type || 'General'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400">Calorías: {recipe.recipes?.calories || 0} kcal</p>
+                        <p className="text-[10px] text-gray-500 mt-2 flex items-center gap-1">
+                          <CalendarIcon size={11} /> {recipe.assigned_date}
+                        </p>
+                      </div>
+                      
+                      <button 
+                        onClick={() => handleDeleteAssignedRecipe(recipe.id)}
+                        className="p-2 text-gray-500 hover:text-[#E31C25] hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Eliminar del historial"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
           </div>
         </div>
       )}
