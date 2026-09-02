@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, CheckCircle, Activity, Loader2 } from 'lucide-react';
+import { Lock, CheckCircle, Activity, Loader2, ShieldCheck } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
 export function SetPasswordPage() {
@@ -11,8 +11,47 @@ export function SetPasswordPage() {
   // NUEVO ESTADO: Controla la pantalla de carga inicial
   const [isVerifying, setIsVerifying] = useState(true);
 
+  // Enlace "nuevo formato": token_hash + type en la query string, en vez del enlace de un solo
+  // clic de Supabase (que se autocanjea con solo visitarlo, y por eso lo dejaban "caducado" los
+  // escáneres de seguridad de correo). El canje solo ocurre cuando el usuario pulsa el botón de
+  // abajo, nunca automáticamente al cargar la página — así visitar el enlace (un bot, una vista
+  // previa, un escáner) no lo consume.
+  const params = new URLSearchParams(window.location.search);
+  const tokenHash = params.get('token_hash');
+  const otpType = params.get('type');
+  const [needsActivation, setNeedsActivation] = useState(!!tokenHash);
+  const [activating, setActivating] = useState(false);
+  const [activationError, setActivationError] = useState('');
+
+  const handleActivate = async () => {
+    if (!tokenHash) return;
+    setActivating(true);
+    setActivationError('');
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: (otpType as any) || 'invite',
+    });
+    setActivating(false);
+    if (error) {
+      setActivationError(
+        'Este enlace ya no es válido (puede que ya se haya usado). Pide al gimnasio que te envíe una invitación nueva.',
+      );
+      return;
+    }
+    setNeedsActivation(false);
+    setIsVerifying(false);
+  };
+
   useEffect(() => {
-    // Le damos tiempo a Supabase para que lea y valide el token de la URL
+    // Si venimos del enlace nuevo (token_hash), el canje lo dispara el botón de activación, no
+    // esta carga automática — nos quedamos esperando a que el usuario pulse.
+    if (tokenHash) {
+      setIsVerifying(false);
+      return;
+    }
+
+    // Compatibilidad con enlaces del formato ANTIGUO ya enviados (fragmento #access_token=... en
+    // la URL): le damos tiempo a Supabase para que lo lea y valide automáticamente.
     const verifyToken = async () => {
       await supabase.auth.getSession();
       setIsVerifying(false);
@@ -34,7 +73,7 @@ export function SetPasswordPage() {
       subscription.unsubscribe();
       clearTimeout(fallbackTimer);
     };
-  }, []);
+  }, [tokenHash]);
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,6 +92,42 @@ export function SetPasswordPage() {
       setSuccess(true);
     }
   };
+
+  // 0. VISTA DE ACTIVACIÓN (enlace nuevo con token_hash): el canje del token solo pasa al pulsar
+  // este botón, nunca solo con "abrir" la página — así una vista previa o un escáner de seguridad
+  // que visite el enlace no lo deja inválido para el usuario real.
+  if (needsActivation) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[#E31C25]/10 rounded-full blur-[120px] pointer-events-none" />
+
+        <div className="bg-[#121212] border border-[#2a2a2a] p-10 rounded-3xl max-w-md w-full shadow-2xl relative z-10 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="w-16 h-16 bg-[#E31C25]/10 border border-[#E31C25]/30 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <ShieldCheck className="text-[#E31C25] w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-3">Activa tu cuenta</h2>
+          <p className="text-gray-400 mb-8 text-sm leading-relaxed">
+            Pulsa el botón para confirmar que eres tú quien abre este enlace, y a continuación
+            podrás crear tu contraseña.
+          </p>
+
+          {activationError && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-sm p-4 rounded-xl font-medium mb-6 text-left">
+              {activationError}
+            </div>
+          )}
+
+          <button
+            onClick={handleActivate}
+            disabled={activating || !!activationError}
+            className="w-full py-4 bg-[#E31C25] text-white rounded-xl font-bold hover:bg-[#A6151B] hover:shadow-[0_0_20px_rgba(227,28,37,0.3)] transition-all duration-300 disabled:opacity-50 flex justify-center items-center gap-2"
+          >
+            {activating ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Activar mi cuenta'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // 1. VISTA DE CARGA INICIAL (La que ve el usuario al hacer clic en el correo)
   if (isVerifying) {

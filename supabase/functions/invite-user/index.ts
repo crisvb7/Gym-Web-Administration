@@ -20,8 +20,6 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email)
-
     const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       redirectTo: 'https://admin.crisvb7.es/crear-password'
     });
