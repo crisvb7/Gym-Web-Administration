@@ -1,0 +1,61 @@
+{
+  "name": "gym-ai-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "description": "Chatbot de IA independiente para administrar el gimnasio (usa la misma base de datos Supabase que la app web).",
+  "author": "Daniel Miranda",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
+    "cli": "tsx src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "electron": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.100.1",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "multer": "^2.3.0",
+    "openai": "^7.8.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^22.5.0",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  },
+  "build": {
+    "appId": "com.danielmiranda.gymbotai",
+    "productName": "GymBot AI",
+    "directories": { "output": "release" },
+    "electronDist": ".electron-dist",
+    "electronVersion": "44.0.0",
+    "files": [
+      "dist/**/*",
+      "public/**/*",
+      "electron/**/*",
+      ".env.example",
+      "package.json",
+      "!shared-files/**",
+      "!data/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "electron/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}

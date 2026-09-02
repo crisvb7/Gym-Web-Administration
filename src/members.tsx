@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Users, Apple, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck, FileSignature, CheckCircle } from "lucide-react";
+import { Users, Apple, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck, FileSignature, CheckCircle, ChevronLeft, ChevronRight, ClipboardList, Utensils } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) => void }) {
@@ -34,6 +34,14 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
   const [loadingWorkouts, setLoadingWorkouts] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+
+  // ESTADOS: Rutina y comidas asignadas (lo que el asistente de IA guarda en
+  // workout_assignments / assigned_meals, antes no se podía ver desde ningún sitio)
+  const [showAssignedPlanModal, setShowAssignedPlanModal] = useState(false);
+  const [planAthlete, setPlanAthlete] = useState<any>(null);
+  const [planMonth, setPlanMonth] = useState<Date>(new Date());
+  const [loadingPlan, setLoadingPlan] = useState(false);
+  const [planByDate, setPlanByDate] = useState<Record<string, { exercises: any[]; meals: any[] }>>({});
 
   const fetchMembers = async () => {
     setLoading(true);
@@ -238,6 +246,54 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
     setLoadingWorkouts(false);
   };
 
+  // Rutina de ejercicios y plan de comidas ya ASIGNADOS a un atleta (workout_assignments /
+  // assigned_meals), agrupados por día, para el mes seleccionado.
+  const fetchAssignedPlan = async (member: any, month: Date) => {
+    setLoadingPlan(true);
+    const year = month.getFullYear();
+    const monthIndex = month.getMonth();
+    const from = new Date(year, monthIndex, 1).toISOString().split('T')[0];
+    const to = new Date(year, monthIndex + 1, 0).toISOString().split('T')[0];
+
+    const [{ data: workouts }, { data: meals }] = await Promise.all([
+      supabase.from('workout_assignments')
+        .select('assigned_date, target_sets, target_reps, target_weight, exercises ( name )')
+        .eq('user_id', member.id).gte('assigned_date', from).lte('assigned_date', to)
+        .order('assigned_date'),
+      supabase.from('assigned_meals')
+        .select('assigned_date, meal_type, recipes ( name )')
+        .eq('user_id', member.id).gte('assigned_date', from).lte('assigned_date', to)
+        .order('assigned_date'),
+    ]);
+
+    const grouped: Record<string, { exercises: any[]; meals: any[] }> = {};
+    (workouts || []).forEach((w: any) => {
+      if (!grouped[w.assigned_date]) grouped[w.assigned_date] = { exercises: [], meals: [] };
+      grouped[w.assigned_date].exercises.push(w);
+    });
+    (meals || []).forEach((m: any) => {
+      if (!grouped[m.assigned_date]) grouped[m.assigned_date] = { exercises: [], meals: [] };
+      grouped[m.assigned_date].meals.push(m);
+    });
+
+    setPlanByDate(grouped);
+    setLoadingPlan(false);
+  };
+
+  const handleViewAssignedPlan = (member: any) => {
+    const now = new Date();
+    setPlanAthlete(member);
+    setPlanMonth(now);
+    setShowAssignedPlanModal(true);
+    fetchAssignedPlan(member, now);
+  };
+
+  const changePlanMonth = (delta: number) => {
+    const newMonth = new Date(planMonth.getFullYear(), planMonth.getMonth() + delta, 1);
+    setPlanMonth(newMonth);
+    if (planAthlete) fetchAssignedPlan(planAthlete, newMonth);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       
@@ -369,11 +425,18 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                               <Flame size={16} /> Plan Nutricional
                             </button>
                             
-                            <button 
+                            <button
                               onClick={() => { handleViewWorkouts(member); setOpenDropdownId(null); }}
                               className="w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors"
                             >
                               <Dumbbell size={16} /> Historial Entrenos
+                            </button>
+
+                            <button
+                              onClick={() => { handleViewAssignedPlan(member); setOpenDropdownId(null); }}
+                              className="w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors"
+                            >
+                              <ClipboardList size={16} /> Rutina y Comidas Asignadas
                             </button>
                             <div className="h-px bg-[#2a2a2a] w-full my-1"></div>
                           </>
@@ -621,6 +684,79 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
               {loadingWorkouts ? <p className="text-gray-500 text-center py-10">Buscando...</p> : athleteWorkouts.length === 0 ? <p className="text-gray-500 text-center py-10">Sin entrenamientos.</p> : athleteWorkouts.map((workout: any) => (
                 <div key={workout.id} className="bg-[#121212] border border-[#2a2a2a] rounded-xl p-4"><h3 className="font-bold text-white text-lg">{workout.name || 'Sin título'}</h3><div className="flex gap-4 mt-3 text-xs text-gray-400"><div className="flex items-center gap-1"><CalendarIcon size={14} className="text-[#E31C25]" /> {new Date(workout.created_at).toLocaleDateString('es-ES')}</div></div></div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Rutina y Comidas Asignadas (workout_assignments / assigned_meals) */}
+      {showAssignedPlanModal && planAthlete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex justify-end">
+          <div className="bg-[#1a1a1a] border-l border-[#2a2a2a] w-full max-w-xl h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
+            <div className="p-6 bg-[#121212] border-b border-[#2a2a2a] flex justify-between items-center shrink-0">
+              <div>
+                <h2 className="text-xl font-bold text-white">Rutina y Comidas Asignadas</h2>
+                <p className="text-[#E31C25] text-sm mt-1">{planAthlete.first_name} {planAthlete.last_name}</p>
+              </div>
+              <button onClick={() => setShowAssignedPlanModal(false)} className="text-gray-400 hover:text-white bg-[#1a1a1a] p-2 rounded-full transition-colors"><X size={20} /></button>
+            </div>
+
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#2a2a2a] shrink-0">
+              <button onClick={() => changePlanMonth(-1)} className="p-2 text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded-lg transition-colors"><ChevronLeft size={20} /></button>
+              <span className="font-bold text-white capitalize">{planMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</span>
+              <button onClick={() => changePlanMonth(1)} className="p-2 text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded-lg transition-colors"><ChevronRight size={20} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+              {loadingPlan ? (
+                <p className="text-gray-500 text-center py-10">Cargando...</p>
+              ) : Object.keys(planByDate).length === 0 ? (
+                <div className="text-center py-16">
+                  <ClipboardList className="w-12 h-12 text-gray-700 mx-auto mb-3" />
+                  <p className="text-gray-500">Sin rutina ni comidas asignadas este mes.</p>
+                </div>
+              ) : (
+                Object.entries(planByDate)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([date, day]) => (
+                    <div key={date} className="bg-[#121212] border border-[#2a2a2a] rounded-xl p-4">
+                      <p className="text-sm font-bold text-white mb-3 capitalize">
+                        {new Date(`${date}T00:00:00`).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+                      </p>
+
+                      {day.exercises.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-[10px] uppercase font-bold text-gray-500 mb-1.5 flex items-center gap-1.5">
+                            <Dumbbell size={12} className="text-[#E31C25]" /> Ejercicios
+                          </p>
+                          <ul className="space-y-1">
+                            {day.exercises.map((ex: any, i: number) => (
+                              <li key={i} className="text-sm text-gray-300">
+                                {ex.exercises?.name || 'Ejercicio'} — {ex.target_sets}x{ex.target_reps}
+                                {ex.target_weight ? ` @ ${ex.target_weight}kg` : ''}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {day.meals.length > 0 && (
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-gray-500 mb-1.5 flex items-center gap-1.5">
+                            <Utensils size={12} className="text-[#E31C25]" /> Comidas
+                          </p>
+                          <ul className="space-y-1">
+                            {day.meals.map((m: any, i: number) => (
+                              <li key={i} className="text-sm text-gray-300">
+                                <span className="text-gray-500">{m.meal_type}:</span> {m.recipes?.name || 'Plato'}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))
+              )}
             </div>
           </div>
         </div>

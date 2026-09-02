@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+data/
+shared-files/*
+!shared-files/.gitkeep
+release/
+.electron-dist/
