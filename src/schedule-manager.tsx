@@ -48,8 +48,8 @@ export function ScheduleManager() {
   const [selectedClass, setSelectedClass] = useState<any>(null);
 
   const weekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-  const startHour = 8;
-  const totalHours = 14; 
+  const startHour = 7;
+  const totalHours = 15;
 
   const getWeekDates = () => {
     const today = new Date();
