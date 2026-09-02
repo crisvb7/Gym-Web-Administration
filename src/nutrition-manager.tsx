@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Plus, Edit2, Trash2, X, Apple, CalendarPlus, Loader2, UploadCloud, Search, ArrowUpDown, Filter, Calendar, Clock, FileText, CheckCircle, User, Utensils, Flame } from "lucide-react";
+import { Plus, Edit2, Trash2, X, Apple, CalendarPlus, Loader2, UploadCloud, Search, ArrowUpDown, Filter, Calendar, Clock, FileText, CheckCircle, User, Utensils, Flame, RefreshCw } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 // ==========================================
@@ -255,6 +255,11 @@ export function NutritionManager() {
   // --- ESTADOS PARA ASIGNAR PLANTILLA ---
   const [isTemplateAssignModalOpen, setIsTemplateAssignModalOpen] = useState(false);
   const [templateToAssign, setTemplateToAssign] = useState<any>(null);
+  // Copia editable de las comidas de la plantilla, solo para esta asignación puntual:
+  // cambiarla nunca toca nutrition_template_recipes (la plantilla original).
+  const [assignTemplateMeals, setAssignTemplateMeals] = useState<any[]>([]);
+  const [assignRecipeSearch, setAssignRecipeSearch] = useState("");
+  const [swapTargetKey, setSwapTargetKey] = useState<string | null>(null);
 
   // --- ESTADOS PARA HISTORIAL DE CLIENTES ---
   const [historyClientSearch, setHistoryClientSearch] = useState('');
@@ -556,20 +561,49 @@ export function NutritionManager() {
     setAssignData({ user_id: '', assigned_date: new Date().toISOString().split('T')[0], meal_type: '' });
     setClientSearch('');
     setShowClientDropdown(false);
+    // Copia editable: tocar estas comidas solo afecta a esta asignación, la plantilla no cambia.
+    setAssignTemplateMeals(
+      (template.nutrition_template_recipes || []).map((tr: any) => ({
+        key: tr.id,
+        meal_type: tr.meal_type,
+        recipe: tr.recipe,
+      }))
+    );
+    setAssignRecipeSearch("");
+    setSwapTargetKey(null);
     setIsTemplateAssignModalOpen(true);
+  };
+
+  const handleAssignMealTypeChange = (key: string, newType: string) => {
+    setAssignTemplateMeals(prev => prev.map(m => m.key === key ? { ...m, meal_type: newType } : m));
+  };
+
+  const handleRemoveAssignMeal = (key: string) => {
+    setAssignTemplateMeals(prev => prev.filter(m => m.key !== key));
+    setSwapTargetKey(prev => prev === key ? null : prev);
+  };
+
+  const handlePickRecipeForAssign = (recipe: any) => {
+    if (swapTargetKey) {
+      setAssignTemplateMeals(prev => prev.map(m => m.key === swapTargetKey ? { ...m, recipe } : m));
+      setSwapTargetKey(null);
+    } else {
+      setAssignTemplateMeals(prev => [...prev, { key: `new-${Date.now()}-${Math.random().toString(36).slice(2)}`, meal_type: 'Snack', recipe }]);
+    }
   };
 
   const handleAssignTemplateExec = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignData.user_id) return alert("Selecciona un atleta primero.");
+    if (assignTemplateMeals.length === 0) return alert("Añade al menos una comida para asignar.");
     setIsSubmitting(true);
 
     try {
-      const inserts = templateToAssign.nutrition_template_recipes.map((tr: any) => ({
+      const inserts = assignTemplateMeals.map((m) => ({
         user_id: assignData.user_id,
-        recipe_id: tr.recipe.id,
+        recipe_id: m.recipe.id,
         assigned_date: assignData.assigned_date,
-        meal_type: tr.meal_type 
+        meal_type: m.meal_type
       }));
 
       const { error } = await supabase.from('assigned_meals').insert(inserts);
@@ -631,6 +665,8 @@ export function NutritionManager() {
   }, {});
 
   const templateFilteredRecipes = recipes.filter(r => r.name.toLowerCase().includes(templateSearchTerm.toLowerCase())).slice(0,10);
+
+  const assignFilteredRecipes = recipes.filter(r => r.name.toLowerCase().includes(assignRecipeSearch.toLowerCase())).slice(0,10);
 
   // ==========================================
   // RENDERIZADO
@@ -1348,69 +1384,142 @@ export function NutritionManager() {
       {/* 5. MODAL: ASIGNAR PLANTILLA A ATLETA */}
       {isTemplateAssignModalOpen && templateToAssign && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-md rounded-2xl p-6 relative shadow-2xl animate-in zoom-in-95 duration-200">
-            <button onClick={() => setIsTemplateAssignModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><X size={20} /></button>
-            <h3 className="text-white font-bold text-xl flex items-center gap-2 mb-2"><CheckCircle className="text-[#E31C25]" size={20} /> Inyectar Plantilla</h3>
-            
-            <form onSubmit={handleAssignTemplateExec} className="space-y-4">
-              <div className="mb-6">
-                <p className="text-xs text-gray-400">Vas a asignar las comidas de la plantilla:</p>
-                <p className="text-white font-bold mt-1 bg-[#1a1a1a] px-3 py-2 rounded-lg border border-[#2a2a2a]">{templateToAssign.name}</p>
+          <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-4xl rounded-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-[#2a2a2a] flex justify-between items-start bg-[#1a1a1a] shrink-0">
+              <div>
+                <h3 className="text-white font-bold text-xl flex items-center gap-2"><CheckCircle className="text-[#E31C25]" size={20} /> Asignar Plantilla</h3>
+                <p className="text-xs text-gray-400 mt-1">Basado en: <span className="text-white font-bold">{templateToAssign.name}</span> — puedes cambiar platos solo para esta asignación, la plantilla original no se modifica.</p>
               </div>
+              <button onClick={() => setIsTemplateAssignModalOpen(false)} className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-[#2a2a2a] shrink-0"><X size={20} /></button>
+            </div>
 
-              <div className="relative">
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Atleta</label>
-                <div className="relative z-50">
-                  <Search className="absolute left-3 top-3.5 text-gray-500 w-5 h-5" />
-                  <input 
-                    type="text" 
-                    placeholder="Escribe el nombre..." 
-                    className="w-full bg-[#1a1a1a] border border-[#2a2a2a] py-3 pl-10 pr-4 rounded-xl text-white focus:border-[#E31C25] outline-none transition-colors"
-                    value={clientSearch}
-                    onChange={(e) => {
-                      setClientSearch(e.target.value);
-                      setShowClientDropdown(true);
-                      setAssignData({...assignData, user_id: ''}); 
-                    }}
-                    onFocus={() => setShowClientDropdown(true)}
-                  />
-                  {showClientDropdown && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setShowClientDropdown(false)}></div>
-                      <div className="absolute z-50 w-full mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl shadow-2xl max-h-48 overflow-y-auto custom-scrollbar">
-                        {filteredClients.length > 0 ? (
-                          filteredClients.map(client => (
-                            <button
-                              key={client.id}
-                              type="button"
-                              className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-[#E31C25] hover:text-white transition-colors border-b border-[#2a2a2a] last:border-b-0 flex items-center gap-3"
-                              onClick={() => {
-                                setAssignData({...assignData, user_id: client.id});
-                                setClientSearch(`${client.first_name} ${client.last_name}`);
-                                setShowClientDropdown(false);
-                              }}
+            <form onSubmit={handleAssignTemplateExec} className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 custom-scrollbar">
+              <div className="space-y-4">
+                <div className="relative">
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Atleta</label>
+                  <div className="relative z-50">
+                    <Search className="absolute left-3 top-3.5 text-gray-500 w-5 h-5" />
+                    <input
+                      type="text"
+                      placeholder="Escribe el nombre..."
+                      className="w-full bg-[#1a1a1a] border border-[#2a2a2a] py-3 pl-10 pr-4 rounded-xl text-white focus:border-[#E31C25] outline-none transition-colors"
+                      value={clientSearch}
+                      onChange={(e) => {
+                        setClientSearch(e.target.value);
+                        setShowClientDropdown(true);
+                        setAssignData({...assignData, user_id: ''});
+                      }}
+                      onFocus={() => setShowClientDropdown(true)}
+                    />
+                    {showClientDropdown && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowClientDropdown(false)}></div>
+                        <div className="absolute z-50 w-full mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl shadow-2xl max-h-48 overflow-y-auto custom-scrollbar">
+                          {filteredClients.length > 0 ? (
+                            filteredClients.map(client => (
+                              <button
+                                key={client.id}
+                                type="button"
+                                className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-[#E31C25] hover:text-white transition-colors border-b border-[#2a2a2a] last:border-b-0 flex items-center gap-3"
+                                onClick={() => {
+                                  setAssignData({...assignData, user_id: client.id});
+                                  setClientSearch(`${client.first_name} ${client.last_name}`);
+                                  setShowClientDropdown(false);
+                                }}
+                              >
+                                <div className="w-6 h-6 rounded-full bg-[#121212] border border-[#2a2a2a] flex items-center justify-center text-[10px] font-bold text-[#E31C25]">{client.first_name[0]}</div>
+                                {client.first_name} {client.last_name}
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-4 py-4 text-sm text-gray-500 text-center">No se encontraron atletas</div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Fecha Objetivo</label>
+                  <input type="date" required value={assignData.assigned_date} onChange={e => setAssignData({...assignData, assigned_date: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white outline-none focus:border-[#E31C25] [color-scheme:dark]" />
+                </div>
+
+                <div>
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 block">Comidas a asignar ({assignTemplateMeals.length})</label>
+                  {assignTemplateMeals.length === 0 ? (
+                    <div className="text-center py-8 border border-dashed border-[#2a2a2a] text-gray-500 rounded-xl text-sm">Sin comidas. Añade alguna desde el buscador de la derecha.</div>
+                  ) : (
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+                      {assignTemplateMeals.map((meal) => (
+                        <div key={meal.key} className={`bg-[#1a1a1a] border p-3 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-colors ${swapTargetKey === meal.key ? 'border-[#E31C25] ring-2 ring-[#E31C25]/40' : 'border-[#2a2a2a]'}`}>
+                          <div className="flex-1 min-w-0 w-full">
+                            <p className="text-white font-bold text-sm truncate">{meal.recipe.name}</p>
+                            <p className="text-gray-500 text-xs">{meal.recipe.calories} kcal</p>
+                          </div>
+                          <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <select
+                              value={meal.meal_type}
+                              onChange={e => handleAssignMealTypeChange(meal.key, e.target.value)}
+                              className="bg-[#121212] border border-[#2a2a2a] text-xs text-orange-400 font-bold rounded-lg p-2 outline-none cursor-pointer flex-1 sm:flex-none"
                             >
-                              <div className="w-6 h-6 rounded-full bg-[#121212] border border-[#2a2a2a] flex items-center justify-center text-[10px] font-bold text-[#E31C25]">{client.first_name[0]}</div>
-                              {client.first_name} {client.last_name}
+                              {MEAL_TYPES.map(mt => <option key={mt} value={mt}>{mt}</option>)}
+                            </select>
+                            <button
+                              type="button"
+                              title="Cambiar plato"
+                              onClick={() => setSwapTargetKey(prev => prev === meal.key ? null : meal.key)}
+                              className={`p-2 rounded-lg border transition-colors ${swapTargetKey === meal.key ? 'bg-[#E31C25] text-white border-[#E31C25]' : 'bg-[#121212] text-gray-500 hover:text-[#E31C25] border-[#2a2a2a]'}`}
+                            >
+                              <RefreshCw size={16} />
                             </button>
-                          ))
-                        ) : (
-                          <div className="px-4 py-4 text-sm text-gray-500 text-center">No se encontraron atletas</div>
-                        )}
-                      </div>
-                    </>
+                            <button type="button" title="Quitar de esta asignación" onClick={() => handleRemoveAssignMeal(meal.key)} className="text-gray-500 hover:text-red-500 p-2 bg-[#121212] rounded-lg border border-[#2a2a2a]"><Trash2 size={16} /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Fecha Objetivo</label>
-                <input type="date" required value={assignData.assigned_date} onChange={e => setAssignData({...assignData, assigned_date: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] p-3 rounded-xl text-white outline-none focus:border-[#E31C25] [color-scheme:dark]" />
+              <div className="flex flex-col border-t lg:border-t-0 lg:border-l border-[#2a2a2a] pt-4 lg:pt-0 lg:pl-6">
+                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 block">Buscador de Recetas</label>
+                {swapTargetKey ? (
+                  <div className="bg-[#E31C25]/10 border border-[#E31C25]/30 text-[#E31C25] text-xs font-bold rounded-lg p-2.5 mb-3 flex items-center justify-between gap-2">
+                    <span>Elige la receta que sustituirá al plato seleccionado.</span>
+                    <button type="button" onClick={() => setSwapTargetKey(null)} className="shrink-0 hover:text-white"><X size={14} /></button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 mb-3">Toca <RefreshCw size={11} className="inline mx-0.5" /> en un plato para sustituirlo, o pulsa "+" aquí para añadir uno nuevo a esta asignación.</p>
+                )}
+                <div className="relative mb-3">
+                  <Search className="absolute left-3 top-3 text-gray-500" size={16} />
+                  <input type="text" placeholder="Filtrar por nombre..." value={assignRecipeSearch} onChange={e => setAssignRecipeSearch(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#2a2a2a] pl-9 pr-4 py-2.5 rounded-xl text-sm text-white outline-none focus:border-[#E31C25]" />
+                </div>
+
+                <div className="flex-1 h-[250px] lg:h-[350px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                  {assignFilteredRecipes.map((recipe) => (
+                    <div key={recipe.id} className="flex justify-between items-center bg-[#1a1a1a] hover:bg-[#2a2a2a] p-3 rounded-xl border border-[#2a2a2a] transition-colors text-sm">
+                      <div className="pr-2 truncate">
+                        <p className="text-white font-bold truncate">{recipe.name}</p>
+                        <p className="text-gray-500 text-xs">{recipe.calories} kcal</p>
+                      </div>
+                      <button type="button" onClick={() => handlePickRecipeForAssign(recipe)} className="bg-[#E31C25]/10 hover:bg-[#E31C25] text-[#E31C25] hover:text-white px-3 py-2 rounded-lg font-bold transition-all shrink-0">
+                        {swapTargetKey ? <RefreshCw size={16} /> : <Plus size={16} />}
+                      </button>
+                    </div>
+                  ))}
+                  {assignFilteredRecipes.length === 0 && (
+                    <div className="text-center py-8 text-gray-500 text-sm">No se han encontrado recetas.</div>
+                  )}
+                </div>
               </div>
 
-              <button type="submit" disabled={isSubmitting || !assignData.user_id} className="w-full bg-[#E31C25] text-white font-bold py-3.5 rounded-xl hover:bg-[#A6151B] transition-colors flex justify-center items-center gap-2 disabled:opacity-50 mt-4">
-                {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : "Inyectar Comidas en Historial"}
-              </button>
+              <div className="lg:col-span-2 border-t border-[#2a2a2a] pt-4 mt-2">
+                <button type="submit" disabled={isSubmitting || !assignData.user_id || assignTemplateMeals.length === 0} className="w-full bg-[#E31C25] text-white font-bold py-3.5 rounded-xl hover:bg-[#A6151B] transition-colors flex justify-center items-center gap-2 disabled:opacity-50 shadow-[0_0_15px_rgba(227,28,37,0.3)]">
+                  {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : "Inyectar Comidas en Historial"}
+                </button>
+              </div>
             </form>
           </div>
         </div>
