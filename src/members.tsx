@@ -1,15 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Users, Apple, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck, FileSignature, CheckCircle, RefreshCw, Search, ChevronLeft, ChevronRight, ClipboardList, Utensils } from "lucide-react";
+import { Users, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck, FileSignature, CheckCircle, RefreshCw, Search, ChevronLeft, ChevronRight, ClipboardList, Utensils } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) => void }) {
-
-  const [showRecipesModal, setShowRecipesModal] = useState(false);
-  const [viewingRecipeAthlete, setViewingRecipeAthlete] = useState<any>(null);
-  const [athleteRecipes, setAthleteRecipes] = useState<any[]>([]);
-  const [loadingRecipes, setLoadingRecipes] = useState(false);
-  const [filterRecipeStartDate, setFilterRecipeStartDate] = useState<string>('');
-  const [filterRecipeEndDate, setFilterRecipeEndDate] = useState<string>('');
 
   // Estados para Tokens Manuales
   const [showTokenModal, setShowTokenModal] = useState(false);
@@ -497,44 +490,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
     }
   };
 
-  const handleViewRecipes = async (member: any) => {
-    if (!member) return;
-    setViewingRecipeAthlete(member);
-    setShowRecipesModal(true);
-    setLoadingRecipes(true);
-
-    try {
-      const { data, error } = await supabase
-        .from('assigned_meals')
-        .select(`*, recipes ( name, calories, image_url )`)
-        .eq('user_id', member.id)
-        .order('assigned_date', { ascending: false });
-
-      if (error) throw error;
-      setAthleteRecipes(data || []);
-    } catch (error) {
-      console.error("Error al cargar recetas:", error);
-    } finally {
-      setLoadingRecipes(false);
-    }
-  };
-
-  const handleDeleteAssignedRecipe = async (assignedId: string) => {
-    if (!window.confirm('¿Seguro que quieres eliminar esta receta del historial?')) return;
-    
-    try {
-      const { error } = await supabase
-        .from('assigned_meals')
-        .delete()
-        .eq('id', assignedId);
-
-      if (error) throw error;
-      setAthleteRecipes(prev => prev.filter(recipe => recipe.id !== assignedId));
-    } catch (error: any) {
-      alert("Error al eliminar la receta: " + error.message);
-    }
-  };
-
   // Rutina de ejercicios y plan de comidas ya ASIGNADOS a un atleta (workout_assignments /
   // assigned_meals), agrupados por día, para el mes seleccionado.
   const fetchAssignedPlan = async (member: any, month: Date) => {
@@ -757,13 +712,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                               className="w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors"
                             >
                               <Dumbbell size={16} /> Historial Entrenos
-                            </button>
-
-                            <button
-                              onClick={() => { handleViewRecipes(member); setOpenDropdownId(null); }}
-                              className="w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors"
-                            >
-                              <Apple size={16} /> Historial de Recetas
                             </button>
 
                             <button
@@ -1420,101 +1368,6 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Historial de Recetas */}
-      {showRecipesModal && viewingRecipeAthlete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#121212] border border-[#2a2a2a] rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
-
-            <div className="p-4 border-b border-[#2a2a2a] flex justify-between items-center bg-[#121212]">
-              <div>
-                <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                  <Apple className="text-[#E31C25]" size={20} /> Historial de Recetas
-                </h3>
-                <p className="text-sm text-gray-400">{viewingRecipeAthlete.first_name} {viewingRecipeAthlete.last_name}</p>
-              </div>
-              <button onClick={() => setShowRecipesModal(false)} className="text-gray-400 hover:text-white bg-[#1a1a1a] p-2 rounded-full transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-4 border-b border-[#2a2a2a] flex gap-4 bg-[#1a1a1a]">
-              <div className="flex-1">
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Desde</label>
-                <input 
-                  type="date" 
-                  value={filterRecipeStartDate} 
-                  onChange={(e) => setFilterRecipeStartDate(e.target.value)} 
-                  className="w-full bg-[#121212] border border-[#2a2a2a] p-2 rounded-lg text-white text-sm outline-none focus:border-[#E31C25]" 
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1 block">Hasta</label>
-                <input 
-                  type="date" 
-                  value={filterRecipeEndDate} 
-                  onChange={(e) => setFilterRecipeEndDate(e.target.value)} 
-                  className="w-full bg-[#121212] border border-[#2a2a2a] p-2 rounded-lg text-white text-sm outline-none focus:border-[#E31C25]" 
-                />
-              </div>
-            </div>
-      
-            <div className="p-4 overflow-y-auto flex-1 bg-black">
-              {loadingRecipes ? (
-                <div className="flex justify-center py-10">
-                  <div className="w-8 h-8 border-4 border-[#E31C25] border-t-transparent rounded-full animate-spin"></div>
-                </div>
-              ) : athleteRecipes.length === 0 ? (
-                <div className="text-center py-10 text-gray-500">
-                  <Apple size={40} className="mx-auto mb-3 opacity-20" />
-                  <p>No hay recetas asignadas a este atleta.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {athleteRecipes.filter(recipe => {
-                    if (!filterRecipeStartDate && !filterRecipeEndDate) return true;
-                    const recipeDate = recipe.assigned_date;
-                    if (filterRecipeStartDate && recipeDate < filterRecipeStartDate) return false;
-                    if (filterRecipeEndDate && recipeDate > filterRecipeEndDate) return false;
-                    return true;
-                  }).map((recipe) => (
-                    <div key={recipe.id} className="bg-[#121212] border border-[#2a2a2a] p-4 rounded-xl flex items-center gap-4 relative group">
-                      {recipe.recipes?.image_url ? (
-                        <img src={recipe.recipes.image_url} className="w-12 h-12 rounded-lg object-cover" alt="Receta" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-lg bg-[#1a1a1a] flex items-center justify-center">
-                          <Apple size={20} className="text-gray-500" />
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="text-white font-bold">{recipe.recipes?.name || 'Receta eliminada'}</p>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase bg-orange-500/10 text-orange-400">
-                            {recipe.meal_type || 'General'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-400">Calorías: {recipe.recipes?.calories || 0} kcal</p>
-                        <p className="text-[10px] text-gray-500 mt-2 flex items-center gap-1">
-                          <CalendarIcon size={11} /> {recipe.assigned_date}
-                        </p>
-                      </div>
-                      
-                      <button 
-                        onClick={() => handleDeleteAssignedRecipe(recipe.id)}
-                        className="p-2 text-gray-500 hover:text-[#E31C25] hover:bg-red-500/10 rounded-lg transition-colors"
-                        title="Eliminar del historial"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            
           </div>
         </div>
       )}
