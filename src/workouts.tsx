@@ -1,6 +1,208 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, UserPlus, Layers, Circle, Upload, Image as ImageIcon, FileText, CheckCircle } from "lucide-react";
-import { supabase } from "./lib/supabase"; 
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, UserPlus, Layers, Circle, Upload, Image as ImageIcon, FileText, CheckCircle, User, Calendar } from "lucide-react";
+import { supabase } from "./lib/supabase";
+
+interface HistoryDayItem {
+  date: string;
+  dayName: string;
+  dayNumber: number;
+}
+
+const getTodayLocalWorkout = () => {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  const localDate = new Date(now.getTime() - offset * 60 * 1000);
+  return localDate.toISOString().split('T')[0];
+};
+
+const generateWorkoutDaysAround = (baseDateStr: string) => {
+  const days: HistoryDayItem[] = [];
+  const baseDate = new Date(baseDateStr);
+  for (let i = -3; i <= 3; i++) {
+    const d = new Date(baseDate);
+    d.setDate(baseDate.getDate() + i);
+    days.push({
+      date: d.toISOString().split('T')[0],
+      dayName: d.toLocaleDateString('es-ES', { weekday: 'short' }),
+      dayNumber: d.getDate(),
+    });
+  }
+  return days;
+};
+
+export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayLocalWorkout());
+  const [dayWorkouts, setDayWorkouts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const daysList = useMemo(() => generateWorkoutDaysAround(selectedDate), [selectedDate]);
+
+  useEffect(() => {
+    if (clientId && selectedDate) {
+      fetchDayWorkouts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, selectedDate]);
+
+  const fetchDayWorkouts = async () => {
+    setLoading(true);
+    try {
+      const [{ data: assignments }, { data: logs }] = await Promise.all([
+        supabase
+          .from('workout_assignments')
+          .select('*, exercises ( name, category, thumbnail_url )')
+          .eq('user_id', clientId)
+          .eq('assigned_date', selectedDate),
+        supabase
+          .from('workout_logs')
+          .select('*, exercises ( name, category, thumbnail_url )')
+          .eq('user_id', clientId)
+          .gte('logged_at', `${selectedDate}T00:00:00`)
+          .lte('logged_at', `${selectedDate}T23:59:59`),
+      ]);
+
+      const unified: any[] = [];
+      const processedLogIds = new Set();
+      const assignmentsList = assignments || [];
+      const logsList = logs || [];
+
+      assignmentsList.forEach((assignment: any) => {
+        const matchingLog = logsList.find((log: any) => {
+          if (processedLogIds.has(log.id)) return false;
+          if (log.assignment_id === assignment.id || log.workout_assignment_id === assignment.id) return true;
+          if (log.exercise_id === assignment.exercise_id) return true;
+          return false;
+        });
+
+        unified.push({
+          id: assignment.id,
+          exercise: assignment.exercises,
+          sets: matchingLog?.sets ?? assignment.target_sets ?? 0,
+          reps: matchingLog?.reps ?? assignment.target_reps ?? 0,
+          weight: matchingLog?.weight_kg ?? assignment.target_weight ?? 0,
+          isCompleted: !!matchingLog,
+        });
+
+        if (matchingLog) processedLogIds.add(matchingLog.id);
+      });
+
+      logsList.forEach((log: any) => {
+        if (!processedLogIds.has(log.id)) {
+          unified.push({
+            id: log.id,
+            exercise: log.exercises,
+            sets: log.sets ?? 0,
+            reps: log.reps ?? 0,
+            weight: log.weight_kg ?? 0,
+            isCompleted: true,
+          });
+        }
+      });
+
+      setDayWorkouts(unified);
+    } catch (error) {
+      console.error("Error cargando historial de entrenamientos:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col w-full font-sans">
+      <div className="relative flex items-center gap-2 mt-2 px-2 w-fit">
+        <Calendar size={18} className="text-[#E31C25]" />
+        <span className="text-[#E31C25] text-sm font-bold">Cambiar fecha</span>
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer [color-scheme:dark]"
+        />
+      </div>
+
+      <div
+        className="flex overflow-x-auto gap-3 py-4 mb-2 pb-4"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+      >
+        {daysList.map((dayObj: HistoryDayItem) => {
+          const isSelected = dayObj.date === selectedDate;
+          return (
+            <button
+              key={dayObj.date}
+              onClick={() => setSelectedDate(dayObj.date)}
+              className={`flex flex-col items-center justify-center min-w-[65px] h-[80px] rounded-2xl border transition-all duration-200 shrink-0 ${
+                isSelected
+                  ? 'bg-[#E31C25] border-[#E31C25] shadow-lg shadow-red-500/20'
+                  : 'bg-[#18181b] border-[#27272a] hover:bg-[#27272a]'
+              }`}
+            >
+              <span className={`text-xs font-medium mb-1 ${isSelected ? 'text-white/90' : 'text-[#a1a1aa]'}`}>
+                {dayObj.dayName}
+              </span>
+              <span className={`text-xl font-bold ${isSelected ? 'text-white' : 'text-[#d4d4d8]'}`}>
+                {dayObj.dayNumber}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {loading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="w-8 h-8 text-[#E31C25] animate-spin" />
+          </div>
+        ) : dayWorkouts.length === 0 ? (
+          <div className="bg-[#18181b] border border-[#27272a] rounded-2xl p-8 flex flex-col items-center justify-center text-center">
+            <Dumbbell className="text-[#3f3f46] mb-3" size={40} />
+            <p className="text-[#a1a1aa] font-medium">No hay entrenamientos registrados para este día.</p>
+          </div>
+        ) : (
+          dayWorkouts.map((w, idx) => (
+            <div key={w.id || idx} className="bg-[#18181b] rounded-2xl p-4 border border-[#27272a]">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-white font-bold text-lg truncate pr-2">{w.exercise?.name || 'Ejercicio sin nombre'}</h3>
+              </div>
+              {w.exercise?.category && (
+                <span className="inline-block text-[10px] font-bold text-[#E31C25] border border-[#E31C25] px-2 py-0.5 rounded uppercase mb-3">
+                  {w.exercise.category}
+                </span>
+              )}
+              <div className="flex items-center gap-4">
+                <div className="w-20 h-20 rounded-xl bg-[#27272a] overflow-hidden flex-shrink-0">
+                  {w.exercise?.thumbnail_url ? (
+                    <img src={w.exercise.thumbnail_url} alt={w.exercise.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Dumbbell size={24} className="text-[#52525b]" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 grid grid-cols-3 gap-2">
+                  <div className="bg-[#27272a] rounded-xl py-2 text-center">
+                    <p className="text-[10px] text-[#a1a1aa] mb-1">Kg</p>
+                    <p className="text-white font-bold text-lg">{w.weight}</p>
+                  </div>
+                  <div className="bg-[#27272a] rounded-xl py-2 text-center">
+                    <p className="text-[10px] text-[#a1a1aa] mb-1">Sets</p>
+                    <p className="text-white font-bold text-lg">{w.sets}</p>
+                  </div>
+                  <div className="bg-[#27272a] rounded-xl py-2 text-center">
+                    <p className="text-[10px] text-[#a1a1aa] mb-1">Reps</p>
+                    <p className="text-white font-bold text-lg">{w.reps}</p>
+                  </div>
+                </div>
+              </div>
+              <div className={`mt-3 w-full rounded-xl py-2.5 text-center text-sm font-bold flex items-center justify-center gap-2 ${w.isCompleted ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-[#27272a] text-[#a1a1aa] border border-[#3f3f46]'}`}>
+                <CheckCircle size={16} /> {w.isCompleted ? 'Completado' : 'Pendiente'}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+} 
 
 interface Exercise {
   id: string;
@@ -46,7 +248,13 @@ interface Template {
 
 export function WorkoutsPage() {
   // NAVEGACIÓN PRINCIPAL
-  const [activeView, setActiveView] = useState<'exercises' | 'templates'>('exercises');
+  const [activeView, setActiveView] = useState<'exercises' | 'templates' | 'client_history'>('exercises');
+
+  // --- ESTADOS PARA HISTORIAL DE ATLETAS ---
+  const [historyClientSearch, setHistoryClientSearch] = useState('');
+  const [showHistoryClientDropdown, setShowHistoryClientDropdown] = useState(false);
+  const [selectedHistoryClientId, setSelectedHistoryClientId] = useState<string | null>(null);
+  const [selectedHistoryClientName, setSelectedHistoryClientName] = useState<string>('');
 
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -474,8 +682,12 @@ export function WorkoutsPage() {
     return matchesSearch && matchesCategory;
   });
 
-  const filteredClients = clients.filter(client => 
+  const filteredClients = clients.filter(client =>
     `${client.first_name} ${client.last_name}`.toLowerCase().includes(clientSearchTerm.toLowerCase())
+  );
+
+  const filteredHistoryClients = clients.filter(client =>
+    `${client.first_name} ${client.last_name}`.toLowerCase().includes(historyClientSearch.toLowerCase())
   );
 
   const filteredTemplateSearch = exercises.filter(ex => 
@@ -601,6 +813,9 @@ export function WorkoutsPage() {
         <button onClick={() => setActiveView('templates')} className={`flex items-center gap-2 px-6 py-3 font-bold text-sm transition-all border-b-2 ${activeView === 'templates' ? 'text-[#E31C25] border-[#E31C25]' : 'text-gray-400 border-transparent hover:text-gray-200'}`}>
           <FileText className="w-4 h-4" /> Plantillas de Rutina
         </button>
+        <button onClick={() => setActiveView('client_history')} className={`flex items-center gap-2 px-6 py-3 font-bold text-sm transition-all border-b-2 ${activeView === 'client_history' ? 'text-[#E31C25] border-[#E31C25]' : 'text-gray-400 border-transparent hover:text-gray-200'}`}>
+          <User className="w-4 h-4" /> Historial Atletas
+        </button>
       </div>
 
       {/* =========================================
@@ -723,6 +938,76 @@ export function WorkoutsPage() {
                 </div>
               </div>
             ))
+          )}
+        </div>
+      )}
+
+      {/* =========================================
+          VISTA 3: HISTORIAL DE ATLETAS
+      ============================================= */}
+      {activeView === 'client_history' && (
+        <div className="space-y-6">
+          <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#2a2a2a] shadow-lg">
+            <h2 className="text-xl font-bold text-white mb-4">Seleccionar Atleta</h2>
+            <div className="relative z-40 max-w-md">
+              <Search className="absolute left-3 top-3.5 text-gray-500 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Buscar atleta por nombre..."
+                className="w-full bg-[#121212] border border-[#2a2a2a] py-3 pl-10 pr-4 rounded-xl text-white focus:border-[#E31C25] outline-none"
+                value={historyClientSearch}
+                onChange={(e) => {
+                  setHistoryClientSearch(e.target.value);
+                  setShowHistoryClientDropdown(true);
+                  setSelectedHistoryClientId(null);
+                }}
+                onFocus={() => setShowHistoryClientDropdown(true)}
+              />
+              {showHistoryClientDropdown && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowHistoryClientDropdown(false)}></div>
+                  <div className="absolute z-40 w-full mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl shadow-2xl max-h-48 overflow-y-auto custom-scrollbar">
+                    {filteredHistoryClients.length > 0 ? (
+                      filteredHistoryClients.map(client => (
+                        <button
+                          key={client.id}
+                          type="button"
+                          className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-[#E31C25] hover:text-white transition-colors border-b border-[#2a2a2a] flex items-center gap-3"
+                          onClick={() => {
+                            setSelectedHistoryClientId(client.id);
+                            setSelectedHistoryClientName(`${client.first_name} ${client.last_name}`);
+                            setHistoryClientSearch(`${client.first_name} ${client.last_name}`);
+                            setShowHistoryClientDropdown(false);
+                          }}
+                        >
+                          <div className="w-6 h-6 rounded-full bg-[#121212] border border-[#2a2a2a] flex items-center justify-center text-[10px] font-bold text-[#E31C25]">{client.first_name[0]}</div>
+                          {client.first_name} {client.last_name}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-4 py-4 text-sm text-gray-500 text-center">No se encontraron atletas</div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {selectedHistoryClientId ? (
+            <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6 shadow-lg">
+              <h3 className="text-lg font-bold text-white mb-6 pb-4 border-b border-[#2a2a2a]">
+                Visualizando entrenamiento de: <span className="text-[#E31C25]">{selectedHistoryClientName}</span>
+              </h3>
+              <div className="max-w-2xl mx-auto">
+                <ClientWorkoutHistory clientId={selectedHistoryClientId} />
+              </div>
+            </div>
+          ) : (
+            <div className="bg-[#1a1a1a] rounded-2xl border border-dashed border-[#2a2a2a] p-12 text-center text-gray-500">
+              <User size={48} className="mx-auto mb-4 opacity-50 text-[#E31C25]" />
+              <p className="text-lg font-bold text-white mb-2">Ningún atleta seleccionado</p>
+              <p className="max-w-sm mx-auto">Busca y selecciona un atleta en el recuadro superior para ver su registro de entrenamientos igual que lo ve él en la app.</p>
+            </div>
           )}
         </div>
       )}
