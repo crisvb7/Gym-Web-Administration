@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GymBot AI · Asistente de Administración</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-avatar">G</div>
+        <div class="brand-text">
+          <div class="brand-title">GymBot AI</div>
+          <div class="brand-subtitle">Admin Assistant</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-nav="chat" type="button">
+          <span class="nav-icon">💬</span>
+          <span>Chat IA</span>
+        </button>
+        <button class="nav-item" data-nav="members" type="button">
+          <span class="nav-icon">👥</span>
+          <span>Miembros</span>
+        </button>
+      </nav>
+
+      <div class="history-section" id="history-section">
+        <button class="new-chat-button" id="new-chat-button" type="button">
+          <span>＋</span> Nuevo chat
+        </button>
+        <div class="history-list" id="history-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="user-avatar">AD</div>
+        <div class="user-text">
+          <div class="user-name">Admin</div>
+          <div class="user-role">Sesión local</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="status">
+          <span id="status-dot" class="status-dot"></span>
+          <div>
+            <div class="topbar-title">GymBot AI</div>
+            <div class="topbar-subtitle" id="status-text">Conectando…</div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <span id="model-badge" class="model-badge">…</span>
+        </div>
+      </header>
+
+      <div class="view active" id="view-chat">
+        <section class="stats-bar" id="stats-bar">
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div>
+              <div class="stat-value" id="stat-members">–</div>
+              <div class="stat-label">Miembros activos</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">💶</div>
+            <div>
+              <div class="stat-value" id="stat-income">–</div>
+              <div class="stat-label">Ingresos mes</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🏋️</div>
+            <div>
+              <div class="stat-value" id="stat-classes">–</div>
+              <div class="stat-label">Clases hoy</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🔁</div>
+            <div>
+              <div class="stat-value" id="stat-payments">–</div>
+              <div class="stat-label">Pagos del mes</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="chat" id="chat">
+          <div class="chat-messages" id="chat-messages"></div>
+
+          <div class="quick-actions" id="quick-actions">
+            <button type="button" data-prompt="¿Cuántos miembros activos hay y quiénes son los últimos en darse de alta?">👥 Miembros activos</button>
+            <button type="button" data-prompt="¿Qué socios tienen el pago pendiente este mes?">💳 Pagos pendientes</button>
+            <button type="button" data-prompt="¿Qué clases hay programadas hoy?">🗓️ Clases de hoy</button>
+            <button type="button" data-prompt="Dame un resumen general del gimnasio hoy.">📊 Resumen del día</button>
+          </div>
+
+          <div id="attachment-preview" class="attachment-preview" hidden>
+            <span id="attachment-name"></span>
+            <button type="button" id="attachment-remove" aria-label="Quitar archivo">✕</button>
+          </div>
+
+          <form class="chat-input" id="chat-form">
+            <input type="file" id="file-input" accept="image/*,.xlsx,.xls,.csv" hidden />
+            <button type="button" id="attach-button" aria-label="Adjuntar imagen o archivo" title="Adjuntar imagen o Excel/CSV">📎</button>
+            <textarea
+              id="chat-textarea"
+              placeholder="Escribe un comando, o adjunta una foto/Excel de la rutina…"
+              rows="1"
+            ></textarea>
+            <button type="submit" id="send-button" aria-label="Enviar">➤</button>
+          </form>
+          <div class="chat-hint">Enter para enviar · Shift+Enter para nueva línea · 📎 para adjuntar imagen o Excel/CSV</div>
+        </section>
+      </div>
+
+      <div class="view" id="view-members" hidden>
+        <section class="members-view">
+          <div class="members-header">
+            <div>
+              <h2>Miembros</h2>
+              <p class="members-subtitle">Socios del gimnasio: nombre, apellidos y correo.</p>
+            </div>
+            <input
+              type="search"
+              id="members-search"
+              class="members-search"
+              placeholder="Buscar por nombre, apellidos o correo…"
+            />
+          </div>
+          <div class="members-table-wrap">
+            <table class="members-table">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Apellidos</th>
+                  <th>Correo</th>
+                </tr>
+              </thead>
+              <tbody id="members-table-body"></tbody>
+            </table>
+            <div class="members-empty" id="members-empty" hidden>No se encontraron socios.</div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
