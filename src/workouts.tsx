@@ -76,6 +76,8 @@ export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
 
         unified.push({
           id: assignment.id,
+          assignmentId: assignment.id,
+          logId: matchingLog?.id ?? null,
           exercise: assignment.exercises,
           sets: matchingLog?.sets ?? assignment.target_sets ?? 0,
           reps: matchingLog?.reps ?? assignment.target_reps ?? 0,
@@ -90,6 +92,8 @@ export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
         if (!processedLogIds.has(log.id)) {
           unified.push({
             id: log.id,
+            assignmentId: null,
+            logId: log.id,
             exercise: log.exercises,
             sets: log.sets ?? 0,
             reps: log.reps ?? 0,
@@ -104,6 +108,23 @@ export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
       console.error("Error cargando historial de entrenamientos:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteWorkoutHistoryItem = async (w: any) => {
+    if (!window.confirm("¿Estás seguro de que deseas eliminar este registro?")) return;
+    try {
+      if (w.assignmentId) {
+        const { error } = await supabase.from('workout_assignments').delete().eq('id', w.assignmentId);
+        if (error) throw error;
+      }
+      if (w.logId) {
+        const { error } = await supabase.from('workout_logs').delete().eq('id', w.logId);
+        if (error) throw error;
+      }
+      setDayWorkouts(prev => prev.filter(item => item.id !== w.id));
+    } catch (error: any) {
+      alert("Error al eliminar el registro: " + error.message);
     }
   };
 
@@ -162,6 +183,14 @@ export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
             <div key={w.id || idx} className="bg-[#18181b] rounded-2xl p-4 border border-[#27272a]">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-white font-bold text-lg truncate pr-2">{w.exercise?.name || 'Ejercicio sin nombre'}</h3>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteWorkoutHistoryItem(w)}
+                  className="p-1.5 text-gray-500 hover:text-red-500 bg-[#1a1a1a] border border-[#2a2a2a] hover:border-red-500/30 rounded-lg transition-all shrink-0"
+                  title="Eliminar este registro"
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
               {w.exercise?.category && (
                 <span className="inline-block text-[10px] font-bold text-[#E31C25] border border-[#E31C25] px-2 py-0.5 rounded uppercase mb-3">
