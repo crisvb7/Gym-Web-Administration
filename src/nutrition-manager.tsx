@@ -111,6 +111,18 @@ export function ClientNutritionHistory({ clientId }: { clientId: string }) {
     }
   };
 
+  const handleDeleteHistoryItem = async (log: any) => {
+    if (!window.confirm("¿Estás seguro de que deseas eliminar este registro?")) return;
+    try {
+      const table = log.is_planned ? 'assigned_meals' : 'nutrition_logs';
+      const { error } = await supabase.from(table).delete().eq('id', log.id);
+      if (error) throw error;
+      setHistory(prev => prev.filter(item => item.id !== log.id));
+    } catch (error: any) {
+      alert("Error al eliminar el registro: " + error.message);
+    }
+  };
+
   return (
     <div className="flex flex-col w-full font-sans">
       
@@ -192,6 +204,14 @@ export function ClientNutritionHistory({ clientId }: { clientId: string }) {
                         <Flame size={12} className="mr-1 text-[#a1a1aa]" /> {log.calories} kcal
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteHistoryItem(log)}
+                      className="p-1.5 text-gray-500 hover:text-red-500 bg-[#1a1a1a] border border-[#2a2a2a] hover:border-red-500/30 rounded-lg transition-all shrink-0"
+                      title="Eliminar este registro"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 ))}
               </div>
