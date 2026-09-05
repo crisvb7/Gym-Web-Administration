@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, UserPlus, Layers, Circle, Upload, Image as ImageIcon, FileText, CheckCircle, User, Calendar } from "lucide-react";
+import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, UserPlus, Layers, Circle, Upload, Image as ImageIcon, FileText, CheckCircle, User, Calendar, ArrowLeftRight } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 interface HistoryDayItem {
@@ -30,12 +30,33 @@ const generateWorkoutDaysAround = (baseDateStr: string) => {
   return days;
 };
 
-export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
+export function ClientWorkoutHistory({ clientId, allExercises = [] }: { clientId: string; allExercises?: Exercise[] }) {
   const [selectedDate, setSelectedDate] = useState<string>(getTodayLocalWorkout());
   const [dayWorkouts, setDayWorkouts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [swapItem, setSwapItem] = useState<any | null>(null);
+  const [swapSearch, setSwapSearch] = useState("");
 
   const daysList = useMemo(() => generateWorkoutDaysAround(selectedDate), [selectedDate]);
+
+  const groupedWorkouts = useMemo(() => {
+    const groups: any[] = [];
+    const consumed = new Set<string>();
+    dayWorkouts.forEach((w) => {
+      if (consumed.has(w.id)) return;
+      if (w.supersetId) {
+        const items = dayWorkouts
+          .filter((x) => x.supersetId === w.supersetId)
+          .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+        items.forEach((x) => consumed.add(x.id));
+        groups.push({ type: 'superset', supersetId: w.supersetId, items });
+      } else {
+        consumed.add(w.id);
+        groups.push({ type: 'single', item: w });
+      }
+    });
+    return groups;
+  }, [dayWorkouts]);
 
   useEffect(() => {
     if (clientId && selectedDate) {
@@ -52,7 +73,8 @@ export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
           .from('workout_assignments')
           .select('*, exercises ( name, category, thumbnail_url )')
           .eq('user_id', clientId)
-          .eq('assigned_date', selectedDate),
+          .eq('assigned_date', selectedDate)
+          .order('order_index', { ascending: true }),
         supabase
           .from('workout_logs')
           .select('*, exercises ( name, category, thumbnail_url )')
@@ -83,6 +105,8 @@ export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
           reps: matchingLog?.reps ?? assignment.target_reps ?? 0,
           weight: matchingLog?.weight_kg ?? assignment.target_weight ?? 0,
           isCompleted: !!matchingLog,
+          supersetId: assignment.superset_id ?? null,
+          orderIndex: assignment.order_index ?? 0,
         });
 
         if (matchingLog) processedLogIds.add(matchingLog.id);
@@ -125,6 +149,24 @@ export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
       setDayWorkouts(prev => prev.filter(item => item.id !== w.id));
     } catch (error: any) {
       alert("Error al eliminar el registro: " + error.message);
+    }
+  };
+
+  const handleSwapExercise = async (w: any, newExerciseId: string) => {
+    try {
+      if (w.assignmentId) {
+        const { error } = await supabase.from('workout_assignments').update({ exercise_id: newExerciseId }).eq('id', w.assignmentId);
+        if (error) throw error;
+      }
+      if (w.logId) {
+        const { error } = await supabase.from('workout_logs').update({ exercise_id: newExerciseId }).eq('id', w.logId);
+        if (error) throw error;
+      }
+      setSwapItem(null);
+      setSwapSearch("");
+      fetchDayWorkouts();
+    } catch (error: any) {
+      alert("Error al cambiar el ejercicio: " + error.message);
     }
   };
 
@@ -179,59 +221,159 @@ export function ClientWorkoutHistory({ clientId }: { clientId: string }) {
             <p className="text-[#a1a1aa] font-medium">No hay entrenamientos registrados para este día.</p>
           </div>
         ) : (
-          dayWorkouts.map((w, idx) => (
-            <div key={w.id || idx} className="bg-[#18181b] rounded-2xl p-4 border border-[#27272a]">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-white font-bold text-lg truncate pr-2">{w.exercise?.name || 'Ejercicio sin nombre'}</h3>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteWorkoutHistoryItem(w)}
-                  className="p-1.5 text-gray-500 hover:text-red-500 bg-[#1a1a1a] border border-[#2a2a2a] hover:border-red-500/30 rounded-lg transition-all shrink-0"
-                  title="Eliminar este registro"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-              {w.exercise?.category && (
-                <span className="inline-block text-[10px] font-bold text-[#E31C25] border border-[#E31C25] px-2 py-0.5 rounded uppercase mb-3">
-                  {w.exercise.category}
-                </span>
-              )}
-              <div className="flex items-center gap-4">
-                <div className="w-20 h-20 rounded-xl bg-[#27272a] overflow-hidden flex-shrink-0">
-                  {w.exercise?.thumbnail_url ? (
-                    <img src={w.exercise.thumbnail_url} alt={w.exercise.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Dumbbell size={24} className="text-[#52525b]" />
+          groupedWorkouts.map((g) =>
+            g.type === 'superset' ? (
+              <div key={g.supersetId} className="rounded-2xl border-2 border-[#E31C25] overflow-hidden bg-[#18181b]">
+                <div className="bg-[#E31C25]/10 p-4 flex items-center gap-3 border-b border-[#E31C25]/40">
+                  <Layers size={20} className="text-[#E31C25]" />
+                  <div>
+                    <p className="text-[#E31C25] font-black text-sm uppercase tracking-wide">Superserie</p>
+                    <p className="text-[#a1a1aa] text-xs">{g.items[0]?.sets ?? 0} Vueltas del circuito</p>
+                  </div>
+                </div>
+                <div className="p-4 divide-y divide-[#27272a]">
+                  {g.items.map((w: any, i: number) => (
+                    <div key={w.id} className={i > 0 ? 'pt-4 mt-4' : ''}>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-6 h-6 rounded-full bg-[#27272a] text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</div>
+                          <h4 className="text-white font-bold truncate">{w.exercise?.name || 'Ejercicio sin nombre'}</h4>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => { setSwapItem(w); setSwapSearch(""); }}
+                            className="p-1.5 text-gray-500 hover:text-[#E31C25] bg-[#1a1a1a] border border-[#2a2a2a] hover:border-[#E31C25]/30 rounded-lg transition-all"
+                            title="Cambiar este ejercicio"
+                          >
+                            <ArrowLeftRight size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteWorkoutHistoryItem(w)}
+                            className="p-1.5 text-gray-500 hover:text-red-500 bg-[#1a1a1a] border border-[#2a2a2a] hover:border-red-500/30 rounded-lg transition-all"
+                            title="Eliminar este ejercicio"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-[#27272a] rounded-xl py-2 text-center">
+                          <p className="text-[10px] text-[#a1a1aa] mb-1">Kg</p>
+                          <p className="text-white font-bold text-lg">{w.weight}</p>
+                        </div>
+                        <div className="bg-[#27272a] rounded-xl py-2 text-center">
+                          <p className="text-[10px] text-[#a1a1aa] mb-1">Reps</p>
+                          <p className="text-white font-bold text-lg">{w.reps}</p>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
-                <div className="flex-1 grid grid-cols-3 gap-2">
-                  <div className="bg-[#27272a] rounded-xl py-2 text-center">
-                    <p className="text-[10px] text-[#a1a1aa] mb-1">Kg</p>
-                    <p className="text-white font-bold text-lg">{w.weight}</p>
-                  </div>
-                  <div className="bg-[#27272a] rounded-xl py-2 text-center">
-                    <p className="text-[10px] text-[#a1a1aa] mb-1">Sets</p>
-                    <p className="text-white font-bold text-lg">{w.sets}</p>
-                  </div>
-                  <div className="bg-[#27272a] rounded-xl py-2 text-center">
-                    <p className="text-[10px] text-[#a1a1aa] mb-1">Reps</p>
-                    <p className="text-white font-bold text-lg">{w.reps}</p>
-                  </div>
+                  ))}
                 </div>
               </div>
-              <div className={`mt-3 w-full rounded-xl py-2.5 text-center text-sm font-bold flex items-center justify-center gap-2 ${w.isCompleted ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-[#27272a] text-[#a1a1aa] border border-[#3f3f46]'}`}>
-                <CheckCircle size={16} /> {w.isCompleted ? 'Completado' : 'Pendiente'}
+            ) : (
+              <div key={g.item.id} className="bg-[#18181b] rounded-2xl p-4 border border-[#27272a]">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-white font-bold text-lg truncate pr-2">{g.item.exercise?.name || 'Ejercicio sin nombre'}</h3>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => { setSwapItem(g.item); setSwapSearch(""); }}
+                      className="p-1.5 text-gray-500 hover:text-[#E31C25] bg-[#1a1a1a] border border-[#2a2a2a] hover:border-[#E31C25]/30 rounded-lg transition-all"
+                      title="Cambiar este ejercicio"
+                    >
+                      <ArrowLeftRight size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteWorkoutHistoryItem(g.item)}
+                      className="p-1.5 text-gray-500 hover:text-red-500 bg-[#1a1a1a] border border-[#2a2a2a] hover:border-red-500/30 rounded-lg transition-all"
+                      title="Eliminar este registro"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+                {g.item.exercise?.category && (
+                  <span className="inline-block text-[10px] font-bold text-[#E31C25] border border-[#E31C25] px-2 py-0.5 rounded uppercase mb-3">
+                    {g.item.exercise.category}
+                  </span>
+                )}
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-xl bg-[#27272a] overflow-hidden flex-shrink-0">
+                    {g.item.exercise?.thumbnail_url ? (
+                      <img src={g.item.exercise.thumbnail_url} alt={g.item.exercise.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Dumbbell size={24} className="text-[#52525b]" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 grid grid-cols-3 gap-2">
+                    <div className="bg-[#27272a] rounded-xl py-2 text-center">
+                      <p className="text-[10px] text-[#a1a1aa] mb-1">Kg</p>
+                      <p className="text-white font-bold text-lg">{g.item.weight}</p>
+                    </div>
+                    <div className="bg-[#27272a] rounded-xl py-2 text-center">
+                      <p className="text-[10px] text-[#a1a1aa] mb-1">Sets</p>
+                      <p className="text-white font-bold text-lg">{g.item.sets}</p>
+                    </div>
+                    <div className="bg-[#27272a] rounded-xl py-2 text-center">
+                      <p className="text-[10px] text-[#a1a1aa] mb-1">Reps</p>
+                      <p className="text-white font-bold text-lg">{g.item.reps}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className={`mt-3 w-full rounded-xl py-2.5 text-center text-sm font-bold flex items-center justify-center gap-2 ${g.item.isCompleted ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-[#27272a] text-[#a1a1aa] border border-[#3f3f46]'}`}>
+                  <CheckCircle size={16} /> {g.item.isCompleted ? 'Completado' : 'Pendiente'}
+                </div>
               </div>
-            </div>
-          ))
+            )
+          )
         )}
       </div>
+
+      {swapItem && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setSwapItem(null)}>
+          <div className="bg-[#18181b] border border-[#27272a] rounded-2xl w-full max-w-sm max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[#27272a] flex items-center justify-between gap-2">
+              <h4 className="text-white font-bold text-sm truncate">Cambiar "{swapItem.exercise?.name}" por...</h4>
+              <button type="button" onClick={() => setSwapItem(null)} className="text-gray-500 hover:text-white shrink-0"><X size={18} /></button>
+            </div>
+            <div className="p-3 border-b border-[#27272a]">
+              <input
+                type="text"
+                autoFocus
+                placeholder="Buscar ejercicio..."
+                value={swapSearch}
+                onChange={(e) => setSwapSearch(e.target.value)}
+                className="w-full bg-[#121212] border border-[#2a2a2a] p-2 rounded-lg text-white text-sm outline-none focus:border-[#E31C25]"
+              />
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {allExercises
+                .filter((ex) => ex.id !== swapItem.exercise?.id && ex.name.toLowerCase().includes(swapSearch.toLowerCase()))
+                .map((ex) => (
+                  <button
+                    key={ex.id}
+                    type="button"
+                    onClick={() => handleSwapExercise(swapItem, ex.id)}
+                    className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-[#E31C25] hover:text-white transition-colors border-b border-[#27272a] last:border-0"
+                  >
+                    {ex.name} <span className="text-xs opacity-60">({ex.category})</span>
+                  </button>
+                ))}
+              {allExercises.filter((ex) => ex.id !== swapItem.exercise?.id && ex.name.toLowerCase().includes(swapSearch.toLowerCase())).length === 0 && (
+                <div className="px-4 py-6 text-sm text-gray-500 text-center">No se encontraron ejercicios</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-} 
+}
 
 interface Exercise {
   id: string;
@@ -1028,7 +1170,7 @@ export function WorkoutsPage() {
                 Visualizando entrenamiento de: <span className="text-[#E31C25]">{selectedHistoryClientName}</span>
               </h3>
               <div className="max-w-2xl mx-auto">
-                <ClientWorkoutHistory clientId={selectedHistoryClientId} />
+                <ClientWorkoutHistory clientId={selectedHistoryClientId} allExercises={exercises} />
               </div>
             </div>
           ) : (
