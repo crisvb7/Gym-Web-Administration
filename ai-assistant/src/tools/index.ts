@@ -2,7 +2,7 @@ import { listMembers, getMember, updateMember } from "./members.js";
 import { listClasses, listDisciplines, createClass } from "./classes.js";
 import { listInvoices, registerPayment } from "./billing.js";
 import { dashboardSummary } from "./dashboard.js";
-import { listExercises, listWorkoutPlan, assignWorkoutPlan } from "./workouts.js";
+import { listExercises, listWorkoutPlan, assignWorkoutPlan, listPersonalRecords } from "./workouts.js";
 import { listRecipes, listMealPlan, assignMealPlan } from "./nutrition.js";
 import { listLocalFiles, readLocalFile } from "./localFiles.js";
 import { listScheduledTasks, createScheduledTask, deleteScheduledTask } from "./tasks.js";
@@ -21,6 +21,7 @@ export const tools = [
   listExercises,
   listWorkoutPlan,
   assignWorkoutPlan,
+  listPersonalRecords,
   listRecipes,
   listMealPlan,
   assignMealPlan,

@@ -1080,7 +1080,7 @@ export function NutritionManager() {
 
       {/* 1. DRAWER LATERAL: CREAR / EDITAR RECETA */}
       {isDrawerOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex justify-end">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex justify-end animate-in fade-in duration-200">
           <div className="w-full max-w-md bg-[#1a1a1a] h-full p-8 border-l border-[#2a2a2a] animate-in slide-in-from-right duration-300 overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center mb-8">
               <h2 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -1168,7 +1168,7 @@ export function NutritionManager() {
 
       {/* 2. MODAL: ASIGNAR RECETA INDIVIDUAL */}
       {isAssignModalOpen && recipeToAssign && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-8 relative shadow-2xl animate-in zoom-in-95 duration-200">
             <button onClick={() => setIsAssignModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors"><X size={24} /></button>
             <h2 className="text-2xl font-bold mb-2 text-white flex items-center gap-2"><CalendarPlus className="text-[#E31C25]" /> Asignar Plato</h2>
@@ -1251,7 +1251,7 @@ export function NutritionManager() {
 
       {/* 3. MODAL: AGENDAR CITA */}
       {isAppointmentModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-8 relative shadow-2xl animate-in zoom-in-95 duration-200">
             <button onClick={() => setIsAppointmentModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors"><X size={24} /></button>
             <h2 className="text-2xl font-bold mb-6 text-white flex items-center gap-2"><Calendar className="text-[#E31C25]" /> Nueva Cita</h2>
@@ -1403,7 +1403,7 @@ export function NutritionManager() {
 
       {/* 5. MODAL: ASIGNAR PLANTILLA A ATLETA */}
       {isTemplateAssignModalOpen && templateToAssign && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-4xl rounded-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="p-6 border-b border-[#2a2a2a] flex justify-between items-start bg-[#1a1a1a] shrink-0">
               <div>

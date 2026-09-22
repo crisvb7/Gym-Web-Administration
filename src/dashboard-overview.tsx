@@ -111,13 +111,13 @@ export function DashboardOverview() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         
         {/* Tarjeta 1: Total Clientes */}
-        <div className="bg-[#121212] border border-[#2a2a2a] p-6 rounded-2xl hover:border-[#E31C25]/30 transition-colors">
+        <div className="group bg-[#121212] border border-[#2a2a2a] p-6 rounded-2xl hover:border-[#E31C25]/30 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/30 transition-all duration-300 animate-in fade-in slide-in-from-bottom-2">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm font-medium text-gray-400">Total Clientes</p>
               <h3 className="text-4xl font-black text-white mt-2">{stats.totalClients}</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-[#E31C25]/10 flex items-center justify-center text-[#E31C25]">
+            <div className="w-10 h-10 rounded-xl bg-[#E31C25]/10 flex items-center justify-center text-[#E31C25] transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6">
               <Users size={20} />
             </div>
           </div>
@@ -127,13 +127,13 @@ export function DashboardOverview() {
         </div>
 
         {/* Tarjeta 2: Clases Pendientes */}
-        <div className="bg-[#121212] border border-[#2a2a2a] p-6 rounded-2xl hover:border-[#2a2a2a] transition-colors">
+        <div className="group bg-[#121212] border border-[#2a2a2a] p-6 rounded-2xl hover:border-purple-500/30 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/30 transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 delay-75">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm font-medium text-gray-400">Clases Pendientes</p>
               <h3 className="text-4xl font-black text-white mt-2">{stats.upcomingClasses.length}</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6">
               <Calendar size={20} />
             </div>
           </div>
@@ -143,13 +143,13 @@ export function DashboardOverview() {
         </div>
 
         {/* Tarjeta 3: Nuevas Reservas */}
-        <div className="bg-[#121212] border border-[#2a2a2a] p-6 rounded-2xl hover:border-[#2a2a2a] transition-colors">
+        <div className="group bg-[#121212] border border-[#2a2a2a] p-6 rounded-2xl hover:border-blue-500/30 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/30 transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 delay-150">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm font-medium text-gray-400">Nuevas Reservas</p>
               <h3 className="text-4xl font-black text-white mt-2">{stats.reservasHoy}</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6">
               <CheckCircle size={20} />
             </div>
           </div>
@@ -159,13 +159,13 @@ export function DashboardOverview() {
         </div>
 
         {/* Tarjeta 4: Ejercicios Registrados */}
-        <div className="bg-[#121212] border border-[#2a2a2a] p-6 rounded-2xl hover:border-[#2a2a2a] transition-colors">
+        <div className="group bg-[#121212] border border-[#2a2a2a] p-6 rounded-2xl hover:border-orange-500/30 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/30 transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 delay-200">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm font-medium text-gray-400">Ejercicios Completados</p>
               <h3 className="text-4xl font-black text-white mt-2">{stats.ejerciciosHoy}</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
+            <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6">
               <Dumbbell size={20} />
             </div>
           </div>
@@ -194,13 +194,13 @@ export function DashboardOverview() {
                 const [hours, minutes] = timeStr.split(':');
                 
                 return (
-                  <div 
-                    key={cls.id} 
+                  <div
+                    key={cls.id}
                     onClick={() => setSesionSeleccionada(cls)} // 3. Se añade la función para abrir el modal
-                    className="cursor-pointer flex items-center justify-between p-4 rounded-xl bg-[#1a1a1a] border border-[#2a2a2a] hover:border-[#E31C25]/30 transition-colors" // Añadimos cursor-pointer
+                    className="group cursor-pointer flex items-center justify-between p-4 rounded-xl bg-[#1a1a1a] border border-[#2a2a2a] hover:border-[#E31C25]/30 hover:bg-[#1f1f1f] transition-all duration-200"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-lg bg-[#E31C25]/10 text-[#E31C25] flex flex-col items-center justify-center font-bold">
+                      <div className="w-12 h-12 rounded-lg bg-[#E31C25]/10 text-[#E31C25] flex flex-col items-center justify-center font-bold transition-transform duration-200 group-hover:scale-105">
                         <span className="text-sm leading-none">{hours}</span>
                         <span className="text-xs leading-none">{minutes}</span>
                       </div>

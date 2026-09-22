@@ -237,8 +237,8 @@ export function BillingManager() {
       
       {/* MODAL EDITOR DE FACTURA */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[200] flex items-center justify-center p-4">
-          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-6 border-b border-[#2a2a2a] flex justify-between items-center bg-[#121212]">
               <h2 className="text-xl font-bold text-white">Facturar a: {clientToBill.first_name}</h2>
               <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-gray-500 hover:text-white"/></button>

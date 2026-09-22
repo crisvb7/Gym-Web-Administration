@@ -211,7 +211,7 @@ export default function DetallesSesion({ sesion, onClose, onDeleteRequest }: Det
   const missedClients = bookedClients.filter(b => b.status === 'MISSED'); // 👈 Nuevo filtro
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
       {/* CAPA DE CIERRE AL CLICAR FUERA */}
       <div className="absolute inset-0" onClick={onClose}></div>
 
