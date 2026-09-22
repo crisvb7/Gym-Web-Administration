@@ -753,7 +753,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
       {/* MODAL DE NUEVO REGISTRO */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -821,7 +821,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
       {/* VISOR DE CONTRATO FIRMADO */}
       {showContractViewModal && contractAthlete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-2xl h-[85vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
             
             <div className="p-6 bg-[#121212] border-b border-[#2a2a2a] flex justify-between items-center shrink-0">
@@ -899,7 +899,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
       
       {/* GESTIÓN DE TARIFA (MODIFICADO CON SELECCIÓN DE HORA INDIVIDUAL) */}
       {showTariffModal && tariffAthlete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -1006,7 +1006,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
       {/* MODAL PLAN NUTRICIONAL */}
       {showKcalModal && kcalAthlete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -1045,7 +1045,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
       {/* MODAL EDITAR CUENTA */}
       {showEditModal && editAtleta && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-md rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -1115,7 +1115,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
       {/* MODAL HISTORIAL DE ENTRENAMIENTOS CON FILTROS DE TEXTO Y BOTÓN RESTABLECER */}
       {showWorkoutsModal && viewingAthlete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-2xl h-[85vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
             
             <div className="p-6 bg-[#121212] border-b border-[#2a2a2a] flex justify-between items-center shrink-0">
@@ -1290,8 +1290,8 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
       {/*Modal para Añadir Tokens Manualmente */}
       {showTokenModal && tokenAthlete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#121212] border border-[#2a2a2a] rounded-2xl w-full max-w-md overflow-hidden">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-[#121212] border border-[#2a2a2a] rounded-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-[#2a2a2a] flex justify-between items-center">
               <h3 className="text-white font-bold text-lg flex items-center gap-2">
                 <RefreshCw className="text-[#E31C25]" size={20} /> Añadir Tokens
@@ -1332,8 +1332,8 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
       {/* Modal para Registrar Pago Multimes */}
       {showPaymentModal && paymentAthlete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#121212] border border-[#2a2a2a] rounded-2xl w-full max-w-md overflow-hidden">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-[#121212] border border-[#2a2a2a] rounded-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-[#2a2a2a] flex justify-between items-center">
               <h3 className="text-white font-bold text-lg flex items-center gap-2">
                 <CalendarIcon className="text-[#E31C25]" size={20} /> Registrar Pago
@@ -1374,7 +1374,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
 
       {/* Modal: Rutina y Comidas Asignadas (workout_assignments / assigned_meals) */}
       {showAssignedPlanModal && planAthlete && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex justify-end">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[150] flex justify-end animate-in fade-in duration-200">
           <div className="bg-[#1a1a1a] border-l border-[#2a2a2a] w-full max-w-xl h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
             <div className="p-6 bg-[#121212] border-b border-[#2a2a2a] flex justify-between items-center shrink-0">
               <div>

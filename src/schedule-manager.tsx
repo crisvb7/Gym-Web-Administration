@@ -408,7 +408,7 @@ export function ScheduleManager() {
 
       {/* MODAL: AJUSTES DE DISCIPLINAS */}
       {showSettingsModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-lg rounded-3xl p-8 relative shadow-2xl animate-in zoom-in-95 duration-200">
             <button onClick={() => setShowSettingsModal(false)} className="absolute top-6 right-6 text-gray-400 hover:text-white"><X size={24} /></button>
             <h2 className="text-xl font-bold mb-6 text-white flex items-center gap-2"><Palette className="text-[#E31C25]" /> Categorías y Colores</h2>
@@ -447,7 +447,7 @@ export function ScheduleManager() {
 
       {/* MODAL: NUEVA/EDITAR CLASE */}
       {isFormModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#121212] border border-[#2a2a2a] w-full max-w-2xl rounded-3xl p-8 relative shadow-2xl animate-in zoom-in-95 duration-200">
             <button onClick={closeAndResetForm} className="absolute top-6 right-6 text-gray-400 hover:text-white transition-colors"><X size={24} /></button>
             <h2 className="text-2xl font-bold mb-6 text-white flex items-center gap-2"><Calendar className="text-[#E31C25]" /> {editingClassId ? 'Editar Sesión' : 'Nueva Sesión'}</h2>

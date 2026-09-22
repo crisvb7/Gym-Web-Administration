@@ -47,6 +47,32 @@ export const listExercises = zodFunction({
   },
 });
 
+export const listPersonalRecords = zodFunction({
+  name: "list_personal_records",
+  description:
+    "Consulta las marcas personales (récords de peso, PRs) de un socio: el peso máximo (kg) que ha " +
+    "levantado en cada ejercicio, calculado a partir de sus entrenamientos registrados. Úsala SIEMPRE " +
+    "antes de diseñar o ajustar una rutina (assign_workout_plan) cuando el objetivo sea mantener o " +
+    "progresar la carga de un socio, para no asignar pesos por debajo de lo que ya levanta ni saltos " +
+    "poco realistas: si no se indica lo contrario, mantén o incrementa progresivamente (p.ej. +2.5-5% " +
+    "o el siguiente incremento razonable de disco) el peso de cada ejercicio respecto a su récord " +
+    "actual, en vez de reiniciar desde cero.",
+  parameters: z.object({
+    member_id: z.string().uuid().describe("id (uuid) del socio."),
+  }),
+  function: async (input) => {
+    const { data, error } = await supabase
+      .from("personal_records")
+      .select("exercise_id, max_weight_kg, achieved_at, logs_count, exercises ( name, category )")
+      .eq("user_id", input.member_id)
+      .order("max_weight_kg", { ascending: false });
+
+    if (error) return `Error consultando las marcas personales: ${error.message}`;
+    if (!data || data.length === 0) return "Este socio todavía no tiene ningún récord registrado (sin entrenamientos con peso guardados).";
+    return JSON.stringify(data, null, 2);
+  },
+});
+
 export const listWorkoutPlan = zodFunction({
   name: "list_workout_plan",
   description:

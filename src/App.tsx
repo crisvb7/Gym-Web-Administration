@@ -222,7 +222,7 @@ export default function App() {
 
       {isSidebarOpen && (
         <div 
-          className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+          className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40 animate-in fade-in duration-200"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
@@ -261,15 +261,15 @@ export default function App() {
               <button
                 key={item.id}
                 onClick={() => handleTabChange(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${
-                  isActive 
-                    ? 'bg-[#E31C25]/10 text-[#E31C25] border border-[#E31C25]/20' 
-                    : 'text-gray-400 hover:bg-[#1a1a1a] hover:text-white'
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group active:scale-[0.98] ${
+                  isActive
+                    ? 'bg-[#E31C25]/10 text-[#E31C25] border border-[#E31C25]/20'
+                    : 'text-gray-400 hover:bg-[#1a1a1a] hover:text-white hover:translate-x-0.5'
                 }`}
               >
-                <Icon className={`w-5 h-5 ${isActive ? 'text-[#E31C25]' : 'group-hover:text-[#E31C25]'}`} />
+                <Icon className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${isActive ? 'text-[#E31C25]' : 'group-hover:text-[#E31C25]'}`} />
                 <span className="font-semibold text-sm">{item.label}</span>
-                {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#E31C25] shadow-[0_0_8px_#E31C25]" />}
+                {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-[#E31C25] shadow-[0_0_8px_#E31C25] animate-pulse" />}
               </button>
             );
           })}
@@ -300,17 +300,20 @@ export default function App() {
       </aside>
 
       <main className="flex-1 h-screen overflow-y-auto w-full">
-        <div className="p-4 pt-20 lg:p-8 max-w-7xl mx-auto">
+        <div key={activeTab} className="p-4 pt-20 lg:p-8 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
           {renderContent()}
         </div>
       </main>
 
       {selectedUser && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex justify-end">
-          <div className="w-full max-w-md bg-[#1a1a1a] h-full p-8 border-l border-[#2a2a2a] shadow-2xl overflow-y-auto">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex justify-end animate-in fade-in duration-200" onClick={() => setSelectedUser(null)}>
+          <div
+            className="w-full max-w-md bg-[#1a1a1a] h-full p-8 border-l border-[#2a2a2a] shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-300 ease-out"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex justify-between items-center mb-8">
               <h2 className="text-xl font-bold">Plan para {selectedUser.first_name}</h2>
-              <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white">
+              <button onClick={() => setSelectedUser(null)} className="text-gray-400 hover:text-white transition-colors">
                 <X size={24} />
               </button>
             </div>

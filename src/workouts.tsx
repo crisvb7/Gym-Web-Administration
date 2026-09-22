@@ -36,6 +36,10 @@ export function ClientWorkoutHistory({ clientId, allExercises = [] }: { clientId
   const [loading, setLoading] = useState(false);
   const [swapItem, setSwapItem] = useState<any | null>(null);
   const [swapSearch, setSwapSearch] = useState("");
+  const [swapTarget, setSwapTarget] = useState<Exercise | null>(null);
+  const [swapWeight, setSwapWeight] = useState("");
+  const [swapReps, setSwapReps] = useState("");
+  const [isSavingSwap, setIsSavingSwap] = useState(false);
 
   const daysList = useMemo(() => generateWorkoutDaysAround(selectedDate), [selectedDate]);
 
@@ -152,21 +156,45 @@ export function ClientWorkoutHistory({ clientId, allExercises = [] }: { clientId
     }
   };
 
-  const handleSwapExercise = async (w: any, newExerciseId: string) => {
+  const closeSwapModal = () => {
+    setSwapItem(null);
+    setSwapSearch("");
+    setSwapTarget(null);
+    setSwapWeight("");
+    setSwapReps("");
+  };
+
+  const openSwapModal = (w: any) => {
+    setSwapItem(w);
+    setSwapSearch("");
+    setSwapTarget(null);
+    setSwapWeight(w.weight?.toString() || "");
+    setSwapReps(w.reps?.toString() || "");
+  };
+
+  const handleSwapExercise = async (w: any, newExerciseId: string, weight: number, reps: number) => {
+    setIsSavingSwap(true);
     try {
       if (w.assignmentId) {
-        const { error } = await supabase.from('workout_assignments').update({ exercise_id: newExerciseId }).eq('id', w.assignmentId);
+        const { error } = await supabase
+          .from('workout_assignments')
+          .update({ exercise_id: newExerciseId, target_weight: weight, target_reps: reps })
+          .eq('id', w.assignmentId);
         if (error) throw error;
       }
       if (w.logId) {
-        const { error } = await supabase.from('workout_logs').update({ exercise_id: newExerciseId }).eq('id', w.logId);
+        const { error } = await supabase
+          .from('workout_logs')
+          .update({ exercise_id: newExerciseId, weight_kg: weight, reps: reps })
+          .eq('id', w.logId);
         if (error) throw error;
       }
-      setSwapItem(null);
-      setSwapSearch("");
+      closeSwapModal();
       fetchDayWorkouts();
     } catch (error: any) {
       alert("Error al cambiar el ejercicio: " + error.message);
+    } finally {
+      setIsSavingSwap(false);
     }
   };
 
@@ -242,7 +270,7 @@ export function ClientWorkoutHistory({ clientId, allExercises = [] }: { clientId
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             type="button"
-                            onClick={() => { setSwapItem(w); setSwapSearch(""); }}
+                            onClick={() => openSwapModal(w)}
                             className="p-1.5 text-gray-500 hover:text-[#E31C25] bg-[#1a1a1a] border border-[#2a2a2a] hover:border-[#E31C25]/30 rounded-lg transition-all"
                             title="Cambiar este ejercicio"
                           >
@@ -279,7 +307,7 @@ export function ClientWorkoutHistory({ clientId, allExercises = [] }: { clientId
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => { setSwapItem(g.item); setSwapSearch(""); }}
+                      onClick={() => openSwapModal(g.item)}
                       className="p-1.5 text-gray-500 hover:text-[#E31C25] bg-[#1a1a1a] border border-[#2a2a2a] hover:border-[#E31C25]/30 rounded-lg transition-all"
                       title="Cambiar este ejercicio"
                     >
@@ -335,39 +363,115 @@ export function ClientWorkoutHistory({ clientId, allExercises = [] }: { clientId
       </div>
 
       {swapItem && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setSwapItem(null)}>
-          <div className="bg-[#18181b] border border-[#27272a] rounded-2xl w-full max-w-sm max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={closeSwapModal}>
+          <div className="bg-[#18181b] border border-[#27272a] rounded-2xl w-full max-w-sm max-h-[80vh] flex flex-col shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-4 duration-200" onClick={(e) => e.stopPropagation()}>
             <div className="p-4 border-b border-[#27272a] flex items-center justify-between gap-2">
-              <h4 className="text-white font-bold text-sm truncate">Cambiar "{swapItem.exercise?.name}" por...</h4>
-              <button type="button" onClick={() => setSwapItem(null)} className="text-gray-500 hover:text-white shrink-0"><X size={18} /></button>
+              <h4 className="text-white font-bold text-sm truncate">
+                {swapTarget ? 'Confirmar cambio' : `Cambiar "${swapItem.exercise?.name}" por...`}
+              </h4>
+              <button type="button" onClick={closeSwapModal} className="text-gray-500 hover:text-white transition-colors shrink-0"><X size={18} /></button>
             </div>
-            <div className="p-3 border-b border-[#27272a]">
-              <input
-                type="text"
-                autoFocus
-                placeholder="Buscar ejercicio..."
-                value={swapSearch}
-                onChange={(e) => setSwapSearch(e.target.value)}
-                className="w-full bg-[#121212] border border-[#2a2a2a] p-2 rounded-lg text-white text-sm outline-none focus:border-[#E31C25]"
-              />
-            </div>
-            <div className="overflow-y-auto flex-1">
-              {allExercises
-                .filter((ex) => ex.id !== swapItem.exercise?.id && ex.name.toLowerCase().includes(swapSearch.toLowerCase()))
-                .map((ex) => (
+
+            {!swapTarget ? (
+              <>
+                <div className="p-3 border-b border-[#27272a]">
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Buscar ejercicio..."
+                    value={swapSearch}
+                    onChange={(e) => setSwapSearch(e.target.value)}
+                    className="w-full bg-[#121212] border border-[#2a2a2a] p-2 rounded-lg text-white text-sm outline-none focus:border-[#E31C25] transition-colors"
+                  />
+                </div>
+                <div className="overflow-y-auto flex-1 p-3 flex flex-col gap-2">
+                  {allExercises
+                    .filter((ex) => ex.id !== swapItem.exercise?.id && ex.name.toLowerCase().includes(swapSearch.toLowerCase()))
+                    .map((ex) => (
+                      <button
+                        key={ex.id}
+                        type="button"
+                        onClick={() => setSwapTarget(ex)}
+                        className="w-full flex items-center gap-3 text-left p-2 rounded-xl border border-[#27272a] bg-[#121212] hover:border-[#E31C25]/60 hover:bg-[#E31C25]/5 transition-all group"
+                      >
+                        <div className="w-14 h-14 rounded-lg bg-[#27272a] overflow-hidden shrink-0">
+                          {ex.thumbnail_url ? (
+                            <img src={ex.thumbnail_url} alt={ex.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center"><Dumbbell size={18} className="text-[#52525b]" /></div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-white text-sm font-bold truncate">{ex.name}</p>
+                          <p className="text-[#E31C25] text-[10px] font-bold uppercase tracking-wide">{ex.category}</p>
+                          <p className="text-gray-500 text-xs line-clamp-1 mt-0.5">{ex.description || "Sin descripción."}</p>
+                        </div>
+                      </button>
+                    ))}
+                  {allExercises.filter((ex) => ex.id !== swapItem.exercise?.id && ex.name.toLowerCase().includes(swapSearch.toLowerCase())).length === 0 && (
+                    <div className="px-4 py-6 text-sm text-gray-500 text-center">No se encontraron ejercicios</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="p-4 flex flex-col gap-4 overflow-y-auto animate-in fade-in slide-in-from-right-2 duration-200">
+                <div className="flex items-center gap-3 bg-[#121212] border border-[#27272a] rounded-xl p-3">
+                  <div className="w-16 h-16 rounded-lg bg-[#27272a] overflow-hidden shrink-0">
+                    {swapTarget.thumbnail_url ? (
+                      <img src={swapTarget.thumbnail_url} alt={swapTarget.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center"><Dumbbell size={20} className="text-[#52525b]" /></div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-white text-sm font-bold truncate">{swapTarget.name}</p>
+                    <p className="text-[#E31C25] text-[10px] font-bold uppercase tracking-wide">{swapTarget.category}</p>
+                  </div>
+                </div>
+                <p className="text-gray-500 text-xs -mt-2">{swapTarget.description || "Sin descripción disponible."}</p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-[#a1a1aa] font-bold uppercase tracking-wide mb-1 block">Kg</label>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={swapWeight}
+                      onChange={(e) => setSwapWeight(e.target.value)}
+                      className="w-full bg-[#27272a] border border-[#3f3f46] p-2.5 rounded-xl text-white text-center font-bold outline-none focus:border-[#E31C25] transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[#a1a1aa] font-bold uppercase tracking-wide mb-1 block">Reps</label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={swapReps}
+                      onChange={(e) => setSwapReps(e.target.value)}
+                      className="w-full bg-[#27272a] border border-[#3f3f46] p-2.5 rounded-xl text-white text-center font-bold outline-none focus:border-[#E31C25] transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-2 mt-1">
                   <button
-                    key={ex.id}
                     type="button"
-                    onClick={() => handleSwapExercise(swapItem, ex.id)}
-                    className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-[#E31C25] hover:text-white transition-colors border-b border-[#27272a] last:border-0"
+                    onClick={() => setSwapTarget(null)}
+                    className="flex-1 py-2.5 rounded-xl font-bold text-sm text-gray-300 bg-[#27272a] hover:bg-[#3f3f46] transition-colors"
                   >
-                    {ex.name} <span className="text-xs opacity-60">({ex.category})</span>
+                    Volver
                   </button>
-                ))}
-              {allExercises.filter((ex) => ex.id !== swapItem.exercise?.id && ex.name.toLowerCase().includes(swapSearch.toLowerCase())).length === 0 && (
-                <div className="px-4 py-6 text-sm text-gray-500 text-center">No se encontraron ejercicios</div>
-              )}
-            </div>
+                  <button
+                    type="button"
+                    disabled={isSavingSwap}
+                    onClick={() => handleSwapExercise(swapItem, swapTarget.id, parseFloat(swapWeight) || 0, parseInt(swapReps) || 0)}
+                    className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white bg-[#E31C25] hover:bg-[#A6151B] transition-colors shadow-[0_0_15px_rgba(227,28,37,0.3)] disabled:opacity-60 flex items-center justify-center gap-2"
+                  >
+                    {isSavingSwap ? <Loader2 size={16} className="animate-spin" /> : "Guardar cambio"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

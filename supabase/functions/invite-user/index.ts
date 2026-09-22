@@ -21,7 +21,7 @@ serve(async (req) => {
     )
 
     const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: 'https://admin.crisvb7.es/crear-password'
+      redirectTo: 'https://danielmirandaenmovimiento.com/crear-password'
     });
 
     if (error) {
