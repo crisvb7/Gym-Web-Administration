@@ -38,7 +38,22 @@ import { TVDisplay } from "./TVDisplay"; // <-- Añadida la importación del Kio
 import { AppDownload } from "./AppDownload";
 import GestionAnuncios from './anuncios';
 
+// Pantalla de carga inicial
+import { SplashScreen } from "./components/splash-screen";
+
+// El splash se monta como overlay independiente por encima de <AppShell />, así que
+// no toca ninguna de sus rutas/estados (login, invitación, recuperar contraseña,
+// kiosko TV...) y se retira solo con un temporizador — ver components/splash-screen.tsx.
 export default function App() {
+  return (
+    <>
+      <AppShell />
+      <SplashScreen />
+    </>
+  );
+}
+
+function AppShell() {
   // 1. EL BYPASS INSTANTÁNEO (Detecta el link mágico en el milisegundo 0)
   const [isDirectInvite] = useState(() => {
     if (typeof window === 'undefined') return false;
