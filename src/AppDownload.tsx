@@ -42,7 +42,7 @@ export function AppDownload() {
         </p>
 
         <a 
-          href="https://drive.google.com/file/d/1PvqzdpYdJgTq7z5NNSPgQ1KzRh-rnLnz/view?usp=sharing" 
+          href="https://drive.google.com/file/d/1fEOT339kQ4Uot2fqW-fnRswxack4etrl/view?usp=sharing" 
           className="flex items-center justify-center w-full p-4 rounded-xl font-bold text-black bg-[#3DDC84] border-2 border-[#3DDC84] hover:bg-opacity-80 transition-all active:scale-95 shadow-md shadow-green-200"
         >
           <Download className="w-6 h-6 mr-3" />
