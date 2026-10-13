@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Users, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck, FileSignature, CheckCircle, RefreshCw, Search, ChevronLeft, ChevronRight, ClipboardList, Utensils } from "lucide-react";
+import { Users, UserPlus, X, Mail, MoreVertical, Dumbbell, Edit2, Trash2, Calendar as CalendarIcon, Clock, KeyRound, Flame, Loader2, Shield, CalendarCheck, FileSignature, CheckCircle, RefreshCw, Search, ChevronLeft, ChevronRight, ClipboardList, Utensils, LockOpen } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) => void }) {
@@ -8,6 +8,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
   const [showTokenModal, setShowTokenModal] = useState(false);
   const [tokenAthlete, setTokenAthlete] = useState<any>(null);
   const [tokenAmount, setTokenAmount] = useState<number>(1);
+  const [tokenMode, setTokenMode] = useState<'add' | 'remove'>('add');
   const [isSavingTokens, setIsSavingTokens] = useState(false);
 
   // Estados para Pagos Multimes
@@ -442,20 +443,51 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
     e.preventDefault();
     setIsSavingTokens(true);
     try {
-      const newTotal = (tokenAthlete.recovery_tokens || 0) + tokenAmount;
+      const current = tokenAthlete.recovery_tokens || 0;
+      const newTotal = tokenMode === 'add' ? current + tokenAmount : Math.max(0, current - tokenAmount);
       const { error } = await supabase
         .from('profiles')
         .update({ recovery_tokens: newTotal })
         .eq('id', tokenAthlete.id);
 
       if (error) throw error;
-      alert(`Se han añadido ${tokenAmount} tokens a ${tokenAthlete.first_name}.`);
+      alert(
+        tokenMode === 'add'
+          ? `Se han añadido ${tokenAmount} tokens a ${tokenAthlete.first_name}.`
+          : `Se han quitado ${current - newTotal} tokens a ${tokenAthlete.first_name}.`
+      );
       setShowTokenModal(false);
       fetchMembers();
     } catch (error: any) {
-      alert("Error al añadir tokens: " + error.message);
+      alert(`Error al ${tokenMode === 'add' ? 'añadir' : 'quitar'} tokens: ` + error.message);
     } finally {
       setIsSavingTokens(false);
+    }
+  };
+
+  const handleClearSanctions = async (member: any) => {
+    const penalizedUntil = member.penalized_until && new Date(member.penalized_until) > new Date()
+      ? new Date(member.penalized_until).toLocaleDateString('es-ES')
+      : null;
+    const summary = [
+      member.is_blocked ? '• Cuenta BLOQUEADA' : null,
+      penalizedUntil ? `• Penalizado hasta el ${penalizedUntil}` : null,
+      `• Faltas este mes: ${member.missed_classes || 0}`,
+    ].filter(Boolean).join('\n');
+
+    if (!window.confirm(`¿Quitar las sanciones de ${member.first_name}?\n\n${summary}\n\nSe desbloqueará la cuenta, se quitará la penalización y las faltas volverán a 0.`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_blocked: false, penalized_until: null, missed_classes: 0, monthly_cancellations: 0 })
+        .eq('id', member.id);
+
+      if (error) throw error;
+      alert(`Sanciones retiradas. ${member.first_name} ya puede reservar y cancelar clases con normalidad.`);
+      fetchMembers();
+    } catch (error: any) {
+      alert("Error al quitar las sanciones: " + error.message);
     }
   };
 
@@ -626,6 +658,11 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                       <div className="flex flex-col gap-1">
                         <span className="text-white font-bold text-sm">{member.rate_days} días / sem</span>
                         <span className="text-xs text-gray-500">Tokens: {member.recovery_tokens || 0}</span>
+                        {member.is_blocked ? (
+                          <span className="text-xs font-bold text-red-500">Bloqueado</span>
+                        ) : member.penalized_until && new Date(member.penalized_until) > new Date() && (
+                          <span className="text-xs font-bold text-orange-400">Penalizado hasta {new Date(member.penalized_until).toLocaleDateString('es-ES')}</span>
+                        )}
                       </div>
                     ) : (
                       <span className="text-gray-500 text-sm italic">Sin tarifa</span>
@@ -694,10 +731,17 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                             </button>
 
                             <button 
-                              onClick={() => { setTokenAthlete(member); setTokenAmount(1); setShowTokenModal(true); setOpenDropdownId(null); }}
+                              onClick={() => { setTokenAthlete(member); setTokenAmount(1); setTokenMode('add'); setShowTokenModal(true); setOpenDropdownId(null); }}
                               className="w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors"
                             >
-                              <RefreshCw size={16} /> Añadir Tokens Extra
+                              <RefreshCw size={16} /> Gestionar Tokens
+                            </button>
+
+                            <button
+                              onClick={() => { handleClearSanctions(member); setOpenDropdownId(null); }}
+                              className="w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-[#1a1a1a] flex items-center gap-3 transition-colors"
+                            >
+                              <LockOpen size={16} /> Quitar Sanciones
                             </button>
 
                             <button 
@@ -1294,7 +1338,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
           <div className="bg-[#121212] border border-[#2a2a2a] rounded-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-[#2a2a2a] flex justify-between items-center">
               <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                <RefreshCw className="text-[#E31C25]" size={20} /> Añadir Tokens
+                <RefreshCw className="text-[#E31C25]" size={20} /> Gestionar Tokens
               </h3>
               <button onClick={() => setShowTokenModal(false)} className="text-gray-400 hover:text-white transition-colors">
                 <X size={20} />
@@ -1302,11 +1346,29 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
             </div>
             <form onSubmit={handleAddTokens} className="p-6">
               <p className="text-gray-400 text-sm mb-4">
-                Vas a añadir tokens a la cuenta de <span className="text-white font-bold">{tokenAthlete.first_name}</span>.
+                {tokenAthlete.first_name} tiene actualmente <span className="text-white font-bold">{tokenAthlete.recovery_tokens || 0}</span> tokens.
               </p>
+
+              <div className="flex gap-2 mb-4 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-1">
+                <button
+                  type="button"
+                  onClick={() => setTokenMode('add')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${tokenMode === 'add' ? 'bg-[#E31C25] text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  Añadir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTokenMode('remove')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${tokenMode === 'remove' ? 'bg-[#E31C25] text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  Quitar
+                </button>
+              </div>
+
               <div className="mb-6">
                 <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 block">
-                  Cantidad de tokens
+                  Cantidad de tokens a {tokenMode === 'add' ? 'añadir' : 'quitar'}
                 </label>
                 <input
                   type="number"
@@ -1322,7 +1384,7 @@ export function MembersPage({ onSelectMember }: { onSelectMember: (user: any) =>
                   Cancelar
                 </button>
                 <button type="submit" disabled={isSavingTokens} className="flex-1 bg-[#E31C25] text-white py-3 rounded-xl font-bold hover:bg-red-700 disabled:opacity-50 transition-colors">
-                  {isSavingTokens ? 'Guardando...' : 'Añadir Tokens'}
+                  {isSavingTokens ? 'Guardando...' : tokenMode === 'add' ? 'Añadir Tokens' : 'Quitar Tokens'}
                 </button>
               </div>
             </form>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, UserPlus, Layers, Circle, Upload, Image as ImageIcon, FileText, CheckCircle, User, Calendar, ArrowLeftRight } from "lucide-react";
+import { Dumbbell, Plus, Search, Video, X, Loader2, Save, Trash2, Edit, UserPlus, Layers, Circle, Upload, Image as ImageIcon, FileText, CheckCircle, User, Calendar, ArrowLeftRight, Trophy, RotateCcw } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 interface HistoryDayItem {
@@ -468,6 +468,280 @@ export function ClientWorkoutHistory({ clientId, allExercises = [] }: { clientId
                     className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white bg-[#E31C25] hover:bg-[#A6151B] transition-colors shadow-[0_0_15px_rgba(227,28,37,0.3)] disabled:opacity-60 flex items-center justify-center gap-2"
                   >
                     {isSavingSwap ? <Loader2 size={16} className="animate-spin" /> : "Guardar cambio"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface PersonalRecordRow {
+  exercise_id: string;
+  max_weight_kg: number;
+  achieved_at: string | null;
+  is_manual_override: boolean;
+  exercise: { name: string; category: string; thumbnail_url: string | null } | null;
+}
+
+// Gestiona las marcas personales (récords de peso) de un atleta: la vista personal_records
+// prioriza siempre el ajuste manual (personal_record_overrides) sobre el máximo calculado a
+// partir de sus entrenamientos, así que "editar" o "quitar el ajuste" aquí no toca los logs
+// reales del atleta, solo el valor que se le muestra a él y al ai-assistant como su récord.
+export function PersonalRecordsManager({ clientId, allExercises = [] }: { clientId: string; allExercises?: Exercise[] }) {
+  const [records, setRecords] = useState<PersonalRecordRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [addSearch, setAddSearch] = useState("");
+  const [addExercise, setAddExercise] = useState<Exercise | null>(null);
+  const [addWeight, setAddWeight] = useState("");
+
+  useEffect(() => {
+    if (clientId) fetchRecords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
+
+  const fetchRecords = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('personal_records')
+        .select('exercise_id, max_weight_kg, achieved_at, is_manual_override, exercise:exercises ( name, category, thumbnail_url )')
+        .eq('user_id', clientId)
+        .order('max_weight_kg', { ascending: false });
+
+      if (error) throw error;
+      setRecords((data as any) || []);
+    } catch (error: any) {
+      console.error('Error cargando marcas personales:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startEdit = (row: PersonalRecordRow) => {
+    setEditingId(row.exercise_id);
+    setEditValue(row.max_weight_kg?.toString() || "0");
+  };
+
+  const saveOverride = async (exercise_id: string, weight: number) => {
+    setIsSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error } = await supabase
+        .from('personal_record_overrides')
+        .upsert({ user_id: clientId, exercise_id, weight_kg: weight, updated_by: user?.id ?? null, updated_at: new Date().toISOString() });
+
+      if (error) throw error;
+      setEditingId(null);
+      fetchRecords();
+    } catch (error: any) {
+      alert("Error al guardar la marca: " + error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const removeOverride = async (exercise_id: string) => {
+    if (!window.confirm("¿Quitar el ajuste manual? Volverá a mostrarse el máximo calculado a partir de sus entrenamientos.")) return;
+    try {
+      const { error } = await supabase
+        .from('personal_record_overrides')
+        .delete()
+        .eq('user_id', clientId)
+        .eq('exercise_id', exercise_id);
+
+      if (error) throw error;
+      fetchRecords();
+    } catch (error: any) {
+      alert("Error al quitar el ajuste: " + error.message);
+    }
+  };
+
+  const handleAddRecord = async () => {
+    if (!addExercise || !addWeight) return;
+    await saveOverride(addExercise.id, parseFloat(addWeight) || 0);
+    setShowAdd(false);
+    setAddExercise(null);
+    setAddWeight("");
+    setAddSearch("");
+  };
+
+  const recordedExerciseIds = new Set(records.map(r => r.exercise_id));
+  const addCandidates = allExercises.filter(ex =>
+    !recordedExerciseIds.has(ex.id) && ex.name.toLowerCase().includes(addSearch.toLowerCase())
+  );
+
+  return (
+    <div className="flex flex-col w-full font-sans">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Trophy size={18} className="text-yellow-400" />
+          <span className="text-white font-bold text-sm">Marcas Personales</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setShowAdd(true); setAddExercise(null); setAddWeight(""); setAddSearch(""); }}
+          className="flex items-center gap-1.5 text-xs font-bold text-[#E31C25] hover:text-white bg-[#E31C25]/10 hover:bg-[#E31C25] border border-[#E31C25]/30 px-3 py-1.5 rounded-lg transition-colors"
+        >
+          <Plus size={14} /> Añadir marca
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="w-6 h-6 text-[#E31C25] animate-spin" />
+        </div>
+      ) : records.length === 0 ? (
+        <div className="bg-[#18181b] border border-[#27272a] rounded-2xl p-6 text-center text-[#a1a1aa] text-sm">
+          Este atleta todavía no tiene ninguna marca personal registrada.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {records.map((row) => (
+            <div key={row.exercise_id} className="flex items-center gap-3 bg-[#18181b] border border-[#27272a] rounded-xl p-3">
+              <div className="w-10 h-10 rounded-lg bg-[#27272a] overflow-hidden shrink-0">
+                {row.exercise?.thumbnail_url ? (
+                  <img src={row.exercise.thumbnail_url} alt={row.exercise.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center"><Dumbbell size={16} className="text-[#52525b]" /></div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-white text-sm font-bold truncate">{row.exercise?.name || 'Ejercicio'}</p>
+                <p className="text-[10px] text-[#71717a] uppercase tracking-wide">
+                  {row.is_manual_override ? 'Ajustado manualmente' : 'Calculado de sus entrenamientos'}
+                </p>
+              </div>
+
+              {editingId === row.exercise_id ? (
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    type="number"
+                    autoFocus
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    className="w-20 bg-[#121212] border border-[#E31C25] rounded-lg p-1.5 text-white text-center text-sm outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => saveOverride(row.exercise_id, parseFloat(editValue) || 0)}
+                    className="text-emerald-400 hover:text-emerald-300 p-1.5 disabled:opacity-50"
+                    title="Guardar"
+                  >
+                    <Save size={16} />
+                  </button>
+                  <button type="button" onClick={() => setEditingId(null)} className="text-gray-500 hover:text-white p-1.5" title="Cancelar">
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-yellow-400 font-bold text-sm">{row.max_weight_kg} kg</span>
+                  <button type="button" onClick={() => startEdit(row)} className="text-gray-500 hover:text-white p-1.5" title="Editar marca">
+                    <Edit size={14} />
+                  </button>
+                  {row.is_manual_override && (
+                    <button type="button" onClick={() => removeOverride(row.exercise_id)} className="text-gray-500 hover:text-[#E31C25] p-1.5" title="Quitar ajuste manual">
+                      <RotateCcw size={14} />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAdd && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowAdd(false)}>
+          <div className="bg-[#18181b] border border-[#27272a] rounded-2xl w-full max-w-sm max-h-[75vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[#27272a] flex items-center justify-between gap-2">
+              <h4 className="text-white font-bold text-sm">Añadir marca personal</h4>
+              <button type="button" onClick={() => setShowAdd(false)} className="text-gray-500 hover:text-white transition-colors"><X size={18} /></button>
+            </div>
+
+            {!addExercise ? (
+              <>
+                <div className="p-3 border-b border-[#27272a]">
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Buscar ejercicio..."
+                    value={addSearch}
+                    onChange={(e) => setAddSearch(e.target.value)}
+                    className="w-full bg-[#121212] border border-[#2a2a2a] p-2 rounded-lg text-white text-sm outline-none focus:border-[#E31C25] transition-colors"
+                  />
+                </div>
+                <div className="overflow-y-auto flex-1 p-3 flex flex-col gap-2">
+                  {addCandidates.map((ex) => (
+                    <button
+                      key={ex.id}
+                      type="button"
+                      onClick={() => setAddExercise(ex)}
+                      className="w-full flex items-center gap-3 text-left p-2 rounded-xl border border-[#27272a] bg-[#121212] hover:border-[#E31C25]/60 hover:bg-[#E31C25]/5 transition-all"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-[#27272a] overflow-hidden shrink-0">
+                        {ex.thumbnail_url ? (
+                          <img src={ex.thumbnail_url} alt={ex.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center"><Dumbbell size={16} className="text-[#52525b]" /></div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white text-sm font-bold truncate">{ex.name}</p>
+                        <p className="text-[#E31C25] text-[10px] font-bold uppercase">{ex.category}</p>
+                      </div>
+                    </button>
+                  ))}
+                  {addCandidates.length === 0 && (
+                    <div className="px-4 py-6 text-sm text-gray-500 text-center">No se encontraron ejercicios sin marca</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="p-4 flex flex-col gap-4">
+                <div className="flex items-center gap-3 bg-[#121212] border border-[#27272a] rounded-xl p-3">
+                  <div className="w-12 h-12 rounded-lg bg-[#27272a] overflow-hidden shrink-0">
+                    {addExercise.thumbnail_url ? (
+                      <img src={addExercise.thumbnail_url} alt={addExercise.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center"><Dumbbell size={16} className="text-[#52525b]" /></div>
+                    )}
+                  </div>
+                  <p className="text-white text-sm font-bold">{addExercise.name}</p>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-[#a1a1aa] font-bold uppercase tracking-wide mb-1 block">Kg</label>
+                  <input
+                    type="number"
+                    autoFocus
+                    value={addWeight}
+                    onChange={(e) => setAddWeight(e.target.value)}
+                    className="w-full bg-[#27272a] border border-[#3f3f46] p-2.5 rounded-xl text-white text-center font-bold outline-none focus:border-[#E31C25] transition-colors"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setAddExercise(null)} className="flex-1 py-2.5 rounded-xl font-bold text-sm text-gray-300 bg-[#27272a] hover:bg-[#3f3f46] transition-colors">
+                    Volver
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSaving || !addWeight}
+                    onClick={handleAddRecord}
+                    className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white bg-[#E31C25] hover:bg-[#A6151B] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? <Loader2 size={16} className="animate-spin" /> : "Guardar marca"}
                   </button>
                 </div>
               </div>
@@ -1269,12 +1543,23 @@ export function WorkoutsPage() {
           </div>
 
           {selectedHistoryClientId ? (
-            <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6 shadow-lg">
-              <h3 className="text-lg font-bold text-white mb-6 pb-4 border-b border-[#2a2a2a]">
-                Visualizando entrenamiento de: <span className="text-[#E31C25]">{selectedHistoryClientName}</span>
-              </h3>
-              <div className="max-w-2xl mx-auto">
-                <ClientWorkoutHistory clientId={selectedHistoryClientId} allExercises={exercises} />
+            <div className="flex flex-col gap-6">
+              <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6 shadow-lg">
+                <h3 className="text-lg font-bold text-white mb-6 pb-4 border-b border-[#2a2a2a]">
+                  Marcas de: <span className="text-[#E31C25]">{selectedHistoryClientName}</span>
+                </h3>
+                <div className="max-w-2xl mx-auto">
+                  <PersonalRecordsManager clientId={selectedHistoryClientId} allExercises={exercises} />
+                </div>
+              </div>
+
+              <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6 shadow-lg">
+                <h3 className="text-lg font-bold text-white mb-6 pb-4 border-b border-[#2a2a2a]">
+                  Visualizando entrenamiento de: <span className="text-[#E31C25]">{selectedHistoryClientName}</span>
+                </h3>
+                <div className="max-w-2xl mx-auto">
+                  <ClientWorkoutHistory clientId={selectedHistoryClientId} allExercises={exercises} />
+                </div>
               </div>
             </div>
           ) : (
