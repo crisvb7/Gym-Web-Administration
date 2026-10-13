@@ -63,7 +63,11 @@ export function scopeWarning(planDescription: string, dates: string[]): string |
 
   const explicitFullMonth = EXPLICIT_FULL_MONTH_PATTERN.test(planDescription);
   const targetMonth = detectTargetMonth(planDescription);
-  const impliesFullMonth = explicitFullMonth || (targetMonth !== null && dates.length >= 4);
+  // Días distintos (un plan de comidas trae una entrada por toma). Solo un nombre de mes con
+  // muchos días sugiere un plan mensual que se quedó corto: un plan semanal ("semana del 12 de
+  // octubre", 4-7 días) es legítimo y no debe rechazarse.
+  const distinctDays = new Set(dates).size;
+  const impliesFullMonth = explicitFullMonth || (targetMonth !== null && distinctDays >= 10);
   if (!impliesFullMonth) return null;
 
   if (targetMonth) {

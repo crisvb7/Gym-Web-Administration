@@ -2,6 +2,7 @@ import { z } from "zod";
 import { zodFunction } from "openai/helpers/zod";
 import { supabase } from "../supabaseClient.js";
 import { pendingConfirmation } from "./confirmation.js";
+import { confirmationRequired } from "../writeMode.js";
 
 export const listInvoices = zodFunction({
   name: "list_invoices",
@@ -84,5 +85,5 @@ export const registerPayment = zodFunction({
     "obtendrás un resumen pidiendo confirmación: muéstraselo al usuario tal cual, el propio " +
     "sistema se encarga de ejecutar o cancelar la acción.",
   parameters: registerPaymentParams.omit({ confirmed: true }),
-  function: (input) => registerPaymentImpl({ ...input, confirmed: false }),
+  function: (input) => registerPaymentImpl({ ...input, confirmed: !confirmationRequired() }),
 });

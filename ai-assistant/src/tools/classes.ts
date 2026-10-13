@@ -2,6 +2,7 @@ import { z } from "zod";
 import { zodFunction } from "openai/helpers/zod";
 import { supabase } from "../supabaseClient.js";
 import { pendingConfirmation } from "./confirmation.js";
+import { confirmationRequired } from "../writeMode.js";
 
 // z.string().datetime() por defecto SOLO acepta el sufijo "Z"; el modelo a veces genera
 // "+00:00" (igual de válido en ISO 8601), que sin `offset: true` Zod rechaza como inválido.
@@ -112,5 +113,5 @@ export const createClass = zodFunction({
     "confirmación: muéstraselo al usuario tal cual, el propio sistema se encarga de ejecutar o " +
     "cancelar la acción.",
   parameters: createClassParams.omit({ confirmed: true }),
-  function: (input) => createClassImpl({ ...input, confirmed: false }),
+  function: (input) => createClassImpl({ ...input, confirmed: !confirmationRequired() }),
 });

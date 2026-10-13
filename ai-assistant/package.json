@@ -1,11 +1,10 @@
-
 {
   "name": "gym-ai-assistant",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
-  "description": "Chatbot de IA independiente para administrar el gimnasio (usa la misma base de datos Supabase que la app web).",
+  "description": "OlimpIA: asistente de IA para administrar el gimnasio (usa la misma base de datos Supabase que la app web).",
   "author": "Cristian Villa",
   "scripts": {
     "start": "tsx src/server.ts",
@@ -15,15 +14,19 @@
     "typecheck": "tsc --noEmit",
     "electron": "npm run build && electron .",
     "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac"
+    "dist:mac": "npm run build && electron-builder --mac",
+    "build:cloud": "node scripts/build-cloud.mjs",
+    "deploy:cloud": "npm run build:cloud && cd .. && npx supabase functions deploy olimpia-tasks --no-verify-jwt --use-api"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "mammoth": "^1.13.0",
     "multer": "^2.3.0",
     "openai": "^7.8.0",
+    "unpdf": "^1.8.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -32,13 +35,16 @@
     "@types/node": "^22.5.0",
     "electron": "^44.0.0",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.0",
     "typescript": "^5.5.4"
   },
   "build": {
-    "appId": "com.crisvb7.gymbotai",
+    "appId": "com.crisvb7.olimpia",
     "productName": "OlimpIA",
-    "directories": { "output": "release" },
+    "directories": {
+      "output": "release"
+    },
     "electronVersion": "44.0.0",
     "files": [
       "dist/**/*",
@@ -50,24 +56,45 @@
       "!data/**"
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "electron/icon.ico"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OlimpIA",
+      "artifactName": "OlimpIA-Setup-${version}.exe"
     },
     "mac": {
       "target": "dmg",
       "icon": "electron/icon.icns",
-      "category": "public.app-category.business"
+      "category": "public.app-category.business",
+      "artifactName": "OlimpIA-${version}-${arch}.${ext}"
     },
     "dmg": {
       "title": "OlimpIA",
       "contents": [
-        { "x": 130, "y": 220, "type": "file" },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   }

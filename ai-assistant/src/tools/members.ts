@@ -2,6 +2,7 @@ import { z } from "zod";
 import { zodFunction } from "openai/helpers/zod";
 import { supabase } from "../supabaseClient.js";
 import { pendingConfirmation } from "./confirmation.js";
+import { confirmationRequired } from "../writeMode.js";
 
 export const listMembers = zodFunction({
   name: "list_members",
@@ -168,8 +169,8 @@ export const updateMember = zodFunction({
     "llamarla siempre obtendrás un resumen pidiendo confirmación: muéstraselo al usuario tal cual, " +
     "el propio sistema se encarga de ejecutar o cancelar la acción cuando el usuario responda — no " +
     "puedes ni necesitas volver a llamar esta herramienta para confirmarla.",
-  // El modelo nunca ve ni puede rellenar "confirmed": toda llamada suya devuelve el resumen
-  // pendiente. Solo el servidor ejecuta la acción real, con confirmed:true, fuera de este flujo.
+  // El modelo nunca ve ni puede rellenar "confirmed": escribe directamente o deja el resumen
+  // pendiente según el modo de escritura del turno (ver writeMode.ts), nunca según lo que diga él.
   parameters: updateMemberParams.omit({ confirmed: true }),
-  function: (input) => updateMemberImpl({ ...input, confirmed: false }),
+  function: (input) => updateMemberImpl({ ...input, confirmed: !confirmationRequired() }),
 });

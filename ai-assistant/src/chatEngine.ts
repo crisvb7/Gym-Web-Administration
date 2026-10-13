@@ -6,10 +6,55 @@ import { tools } from "./tools/index.js";
 import { writeToolImplementations } from "./tools/registry.js";
 import type { IngestedFile } from "./fileIngestion.js";
 
-export const client = new OpenAI(config.openaiApiKey ? { apiKey: config.openaiApiKey } : {});
+// El cliente se crea al usarse (y se recrea si cambia la clave desde Ajustes), para que el
+// servidor pueda arrancar aunque todavía no esté configurado.
+let openai: OpenAI | null = null;
+let openaiKey = "";
+
+export function getOpenAI(): OpenAI {
+  const key = config.openaiApiKey;
+  if (!key) throw new Error("Falta la clave de OpenAI: configúrala en Ajustes.");
+  if (!openai || key !== openaiKey) {
+    openai = new OpenAI({ apiKey: key });
+    openaiKey = key;
+  }
+  return openai;
+}
 
 export function createConversation(): ChatCompletionMessageParam[] {
   return [{ role: "system", content: buildSystemPrompt() }];
+}
+
+// Rondas máximas de llamadas a herramientas en un solo turno. Preparar el plan mensual de un
+// cliente (leer su ficha, buscarlo, consultar récords, ejercicios, recetas, asignar rutina y
+// comidas, reintentar si una herramienta lo rechaza...) necesita bastantes más que las 10 que
+// trae por defecto la librería.
+const MAX_TOOL_ROUNDS = 40;
+
+// Tamaño máximo (en caracteres de JSON, ~4 por token) del historial que se manda al modelo en
+// cada turno. Las conversaciones largas se siguen guardando enteras en disco, pero al modelo solo
+// se le mandan los mensajes más recientes que quepan, para no superar su límite de contexto.
+const MAX_CONTEXT_CHARS = 240_000;
+
+/**
+ * Recorta el historial a los mensajes más recientes que quepan en MAX_CONTEXT_CHARS, cortando
+ * siempre justo antes de un mensaje del usuario (nunca a mitad de una llamada a herramienta, que
+ * la API rechazaría). El primer mensaje (system) se sustituye por uno recién generado, con la
+ * fecha de hoy: si no, una conversación antigua seguiría creyendo que "hoy" es el día en que se
+ * creó.
+ */
+function buildContext(messages: ChatCompletionMessageParam[]): ChatCompletionMessageParam[] {
+  const system: ChatCompletionMessageParam = { role: "system", content: buildSystemPrompt() };
+  const rest = messages[0]?.role === "system" ? messages.slice(1) : messages;
+
+  let size = 0;
+  let cut = rest.length;
+  for (let i = rest.length - 1; i >= 0; i--) {
+    size += JSON.stringify(rest[i]).length;
+    if (size > MAX_CONTEXT_CHARS && cut < rest.length) break;
+    if (rest[i].role === "user") cut = i;
+  }
+  return [system, ...rest.slice(cut)];
 }
 
 export interface PendingAction {
@@ -69,23 +114,27 @@ function findPendingActions(turnMessages: ChatCompletionMessageParam[]): Pending
   return results;
 }
 
+const ARCHIVE_HINT =
+  "Si hay que guardarlo en la carpeta, usa save_attachment_to_folder con este nombre de adjunto, " +
+  "para conservar el documento original";
+
 function buildUserContent(userInput: string, attachment?: IngestedFile | null): string | ChatCompletionContentPart[] {
   if (!attachment) return userInput;
 
   if (attachment.kind === "image") {
-    const text = userInput.trim() || "Interpreta esta imagen (contiene una tabla de ejercicios o comidas).";
+    const text = userInput.trim() || "Interpreta esta imagen.";
     return [
-      { type: "text", text: `${text}\n\n(Imagen adjunta: ${attachment.filename})` },
+      { type: "text", text: `${text}\n\n(Imagen adjunta: "${attachment.filename}". ${ARCHIVE_HINT})` },
       { type: "image_url", image_url: { url: attachment.imageDataUrl!, detail: "high" } },
     ];
   }
 
-  // Hoja de cálculo/CSV: el contenido ya se extrajo celda a celda en el servidor (más fiable que
-  // pedirle al modelo que "lea" una captura de la hoja), se lo pasamos como texto.
+  // Documento (PDF, Word, Excel, CSV, texto): el contenido ya se extrajo en el servidor (más
+  // fiable que pedirle al modelo que "lea" una captura), se lo pasamos como texto.
   const text = userInput.trim() || "Interpreta el contenido de este archivo.";
   return (
-    `${text}\n\n--- Contenido del archivo adjunto "${attachment.filename}" (extraído celda a celda, ` +
-    `es el contenido EXACTO del archivo) ---\n${attachment.spreadsheetText}`
+    `${text}\n\n(Archivo adjunto: "${attachment.filename}". ${ARCHIVE_HINT})\n\n` +
+    `--- Contenido del archivo adjunto (texto extraído del archivo, es su contenido EXACTO) ---\n${attachment.text}`
   );
 }
 
@@ -99,14 +148,13 @@ export async function runChatTurn(
   userInput: string,
   attachment?: IngestedFile | null,
 ): Promise<ChatTurnResult> {
-  const startIndex = messages.length;
-  messages.push({ role: "user", content: buildUserContent(userInput, attachment) });
+  const userMessage: ChatCompletionMessageParam = { role: "user", content: buildUserContent(userInput, attachment) };
+  const context = [...buildContext(messages), userMessage];
 
-  const runner = client.chat.completions.runTools({
-    model: config.openaiModel,
-    messages,
-    tools,
-  });
+  const runner = getOpenAI().chat.completions.runTools(
+    { model: config.openaiModel, messages: context, tools },
+    { maxChatCompletions: MAX_TOOL_ROUNDS },
+  );
 
   const toolsUsed: string[] = [];
   runner.on("functionToolCall", (call) => {
@@ -114,13 +162,15 @@ export async function runChatTurn(
   });
 
   const reply = await runner.finalContent();
-  const updatedMessages = runner.messages;
+  // Mensajes nuevos de este turno (llamadas a herramientas y respuesta), que se añaden al
+  // historial COMPLETO (no al recortado que se le mandó al modelo).
+  const turnMessages = [userMessage, ...runner.messages.slice(context.length)];
 
   return {
     reply: reply ?? "(sin respuesta de texto)",
     toolsUsed,
-    messages: updatedMessages,
-    pendingActions: findPendingActions(updatedMessages.slice(startIndex)),
+    messages: [...messages, ...turnMessages],
+    pendingActions: findPendingActions(turnMessages),
   };
 }
 

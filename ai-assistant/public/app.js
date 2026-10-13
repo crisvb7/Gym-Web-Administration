@@ -15,13 +15,21 @@ const newChatButton = document.getElementById("new-chat-button");
 const historyList = document.getElementById("history-list");
 const historySection = document.getElementById("history-section");
 const navItems = document.querySelectorAll(".nav-item[data-nav]");
-const viewChat = document.getElementById("view-chat");
-const viewMembers = document.getElementById("view-members");
+const views = {
+  chat: document.getElementById("view-chat"),
+  tasks: document.getElementById("view-tasks"),
+  members: document.getElementById("view-members"),
+  settings: document.getElementById("view-settings"),
+};
 const membersSearch = document.getElementById("members-search");
 const membersTableBody = document.getElementById("members-table-body");
 const membersEmpty = document.getElementById("members-empty");
 
 let attachedFile = null;
+
+// Funciones extra que solo existen dentro de la app de escritorio (electron/preload.cjs): elegir
+// carpeta con el diálogo del sistema, abrirla en el explorador, arrancar con el ordenador...
+const desktop = window.olimpia || null;
 
 const TOOL_TAGS = {
   list_members: "Miembros",
@@ -39,6 +47,8 @@ const TOOL_TAGS = {
   list_recipes: "Nutrición",
   list_meal_plan: "Nutrición",
   assign_meal_plan: "Nutrición",
+  delete_meal_plan: "Nutrición",
+  delete_workout_plan: "Rutinas",
   list_local_files: "Archivos",
   read_local_file: "Archivos",
   list_scheduled_tasks: "Tareas",
@@ -46,6 +56,11 @@ const TOOL_TAGS = {
   delete_scheduled_task: "Tareas",
   list_class_bookings: "Reservas",
   list_workout_logs: "Rutinas",
+  list_personal_records: "Rutinas",
+  create_local_folder: "Archivos",
+  save_local_file: "Archivos",
+  save_attachment_to_folder: "Archivos",
+  set_files_folder: "Archivos",
   list_nutrition_logs: "Nutrición",
   list_calorie_goal_history: "Nutrición",
 };
@@ -54,7 +69,8 @@ function escapeHtml(str) {
   return str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // Convierte un subconjunto muy simple de markdown (negrita, listas, código en línea,
@@ -66,13 +82,24 @@ function renderMarkdown(text) {
   const html = blocks
     .map((block) => {
       const lines = block.split("\n").filter((l) => l.trim() !== "");
-      const isList = lines.length > 0 && lines.every((l) => /^\s*-\s+/.test(l));
+      const isList = lines.length > 0 && lines.every((l) => /^\s*[-*]\s+/.test(l));
+      const isOrdered = lines.length > 0 && lines.every((l) => /^\s*\d+[.)]\s+/.test(l));
 
       if (isList) {
-        const items = lines.map((l) => `<li>${inline(l.replace(/^\s*-\s+/, ""))}</li>`).join("");
+        const items = lines.map((l) => `<li>${inline(l.replace(/^\s*[-*]\s+/, ""))}</li>`).join("");
         return `<ul>${items}</ul>`;
       }
-      return `<p>${lines.map(inline).join("<br>")}</p>`;
+      if (isOrdered) {
+        const items = lines.map((l) => `<li>${inline(l.replace(/^\s*\d+[.)]\s+/, ""))}</li>`).join("");
+        return `<ol>${items}</ol>`;
+      }
+      return lines
+        .map((l) => {
+          const heading = l.match(/^#{1,6}\s+(.*)$/);
+          return heading ? `<h4>${inline(heading[1])}</h4>` : `<p>${inline(l)}</p>`;
+        })
+        .join("")
+        .replace(/<\/p><p>/g, "<br>");
     })
     .join("");
 
@@ -102,7 +129,7 @@ function addMessage({ role, text, tags = [], time = timeLabel() }) {
 
   const avatar = document.createElement("div");
   avatar.className = `msg-avatar ${role}`;
-  avatar.textContent = role === "assistant" ? "G" : "AD";
+  avatar.textContent = role === "assistant" ? "O" : "AD";
 
   const body = document.createElement("div");
   body.className = "msg-body";
@@ -131,7 +158,7 @@ function addPendingActionCard(id, summary) {
   const row = document.createElement("div");
   row.className = "msg-row assistant";
   row.innerHTML = `
-    <div class="msg-avatar assistant">G</div>
+    <div class="msg-avatar assistant">O</div>
     <div class="msg-body">
       <div class="msg-tags"><span class="msg-tag">Confirmación requerida</span></div>
       <div class="msg-bubble confirm-card">
@@ -187,7 +214,7 @@ function addTypingIndicator() {
   const row = document.createElement("div");
   row.className = "msg-row assistant";
   row.innerHTML = `
-    <div class="msg-avatar assistant">G</div>
+    <div class="msg-avatar assistant">O</div>
     <div class="msg-body">
       <div class="msg-bubble"><span class="typing"><span></span><span></span><span></span></span></div>
     </div>
@@ -338,11 +365,11 @@ function showWelcomeMessage() {
   addMessage({
     role: "assistant",
     text:
-      "¡Hola! Soy **GymBot**, tu asistente de administración para el gimnasio. Puedo ayudarte a:\n\n" +
-      "- Consultar y gestionar **miembros**\n" +
-      "- Revisar **pagos** y facturación\n" +
-      "- Administrar **clases**, **rutinas** y **nutrición**\n" +
-      "- Ejecutar **tareas programadas** de forma recurrente\n\n" +
+      "¡Hola! Soy **OlimpIA**, tu asistente del gimnasio. Puedo ayudarte a:\n\n" +
+      "- Consultar y gestionar **miembros**, **pagos** y **clases**\n" +
+      "- Preparar **rutinas** y **planes de comidas** a medida, leyendo la **ficha** de cada cliente\n" +
+      "- Leer **PDF, Word, Excel o fotos** que me adjuntes o que dejes en la carpeta de fichas\n" +
+      "- Hacer cosas **automáticamente** cada día, semana o mes (p.ej. las rutinas de todos el día 1)\n\n" +
       "¿En qué puedo ayudarte hoy?",
     tags: ["Inicio"],
   });
@@ -443,18 +470,27 @@ async function deleteConversationItem(id) {
 
 newChatButton.addEventListener("click", startNewChat);
 
-// --- Navegación entre secciones (Chat IA / Miembros) --------------------------------------------
+// --- Navegación entre secciones --------------------------------------------------------------
 function switchView(view) {
   navItems.forEach((btn) => btn.classList.toggle("active", btn.dataset.nav === view));
-  viewChat.hidden = view !== "chat";
-  viewMembers.hidden = view !== "members";
+  for (const [name, el] of Object.entries(views)) el.hidden = name !== view;
   // El historial de conversaciones solo tiene sentido mientras se ve el chat.
   historySection.style.display = view === "chat" ? "" : "none";
 
+  if (view === "chat") {
+    loadHistory();
+    loadConversationList();
+  }
   if (view === "members") {
     loadMembers(membersSearch.value.trim());
     membersSearch.focus();
   }
+  if (view === "tasks") {
+    loadTasks();
+    loadFichas();
+    loadFiles();
+  }
+  if (view === "settings") loadSettings();
 }
 
 navItems.forEach((btn) => {
@@ -499,7 +535,291 @@ membersSearch.addEventListener("input", () => {
   membersSearchTimer = setTimeout(() => loadMembers(membersSearch.value.trim()), 300);
 });
 
-function init() {
+// --- Tareas automáticas y carpeta de fichas ---------------------------------------------------
+const tasksList = document.getElementById("tasks-list");
+const filesList = document.getElementById("files-list");
+const filesRoot = document.getElementById("files-root");
+const filesOpenButton = document.getElementById("files-open");
+let tasksPollTimer = null;
+let currentFilesDir = "";
+
+async function loadTasks() {
+  clearTimeout(tasksPollTimer);
+  try {
+    const res = await fetch("/api/tasks");
+    const tasks = await res.json();
+    if (!res.ok) throw new Error(tasks.error);
+    tasksList.innerHTML = "";
+
+    if (tasks.length === 0) {
+      tasksList.innerHTML = `<div class="empty-card">Todavía no hay tareas automáticas. Pídele una a OlimpIA desde el chat.</div>`;
+      return;
+    }
+
+    for (const task of tasks) {
+      const card = document.createElement("div");
+      card.className = "task-card";
+      const pills = [
+        `<span class="pill">🗓️ ${escapeHtml(task.schedule)}</span>`,
+        task.clients
+          ? `<span class="pill">👥 ${escapeHtml(task.clients.join(", "))}</span>`
+          : task.clientFilesFolder !== null
+            ? `<span class="pill">📁 Por cada ficha de "${escapeHtml(task.clientFilesFolder || "(carpeta principal)")}"</span>`
+            : "",
+        task.requireConfirmation
+          ? `<span class="pill">✋ Pide confirmación</span>`
+          : `<span class="pill ok">⚡ Guarda los cambios sola</span>`,
+        task.running ? `<span class="pill ok">⏳ Ejecutándose…</span>` : "",
+      ].join("");
+      const last = task.lastRunDate
+        ? `Última ejecución: ${escapeHtml(task.lastRunDate)}${task.lastRunSummary ? ` — ${escapeHtml(task.lastRunSummary)}` : ""}`
+        : "Todavía no se ha ejecutado.";
+      card.innerHTML = `
+        <div class="task-main">
+          <div class="task-description"></div>
+          <div class="task-meta">${pills}</div>
+          <div class="task-last">${last}</div>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn-secondary" data-action="run" ${task.running ? "disabled" : ""}>▶ Ejecutar ahora</button>
+          <button type="button" class="btn-danger" data-action="delete">Eliminar</button>
+        </div>
+      `;
+      card.querySelector(".task-description").textContent = task.description;
+      card.querySelector('[data-action="run"]').addEventListener("click", (e) => runTaskNow(task.id, e.currentTarget));
+      card.querySelector('[data-action="delete"]').addEventListener("click", (e) => deleteTask(task.id, e.currentTarget));
+      tasksList.appendChild(card);
+    }
+
+    // Mientras alguna tarea se está ejecutando, refrescamos para ver cuándo termina.
+    if (tasks.some((t) => t.running) && !views.tasks.hidden) {
+      tasksPollTimer = setTimeout(loadTasks, 5000);
+    }
+  } catch (err) {
+    tasksList.innerHTML = `<div class="empty-card"></div>`;
+    tasksList.firstChild.textContent = err?.message || "No se pudieron cargar las tareas.";
+  }
+}
+
+// --- Fichas en la nube --------------------------------------------------------------------------
+const fichasList = document.getElementById("fichas-list");
+const fichasSyncInfo = document.getElementById("fichas-sync-info");
+const fichasSyncButton = document.getElementById("fichas-sync");
+
+const FICHA_STATUS = {
+  ok: { pill: "ok", text: "✅ En la nube" },
+  not_found: { pill: "warn", text: "⚠️ Socio no encontrado" },
+  duplicate: { pill: "warn", text: "⚠️ Nombre repetido" },
+  unreadable: { pill: "warn", text: "⚠️ No se puede leer" },
+};
+
+function formatDateTime(iso) {
+  return new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+async function loadFichas(sync = false) {
+  fichasSyncButton.disabled = true;
+  try {
+    const res = await fetch(`/api/fichas${sync ? "?sync=1" : ""}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    fichasSyncInfo.textContent = data.sync.error
+      ? `⚠️ No se pudo sincronizar: ${data.sync.error}`
+      : data.sync.lastSyncAt
+        ? `Última comprobación: ${formatDateTime(data.sync.lastSyncAt)}`
+        : "";
+    fichasList.innerHTML = "";
+    if (data.fichas.length === 0) {
+      fichasList.innerHTML = `<div class="members-empty">Ninguna tarea usa fichas todavía. Se subirán solas cuando crees una tarea por cliente.</div>`;
+      return;
+    }
+    for (const f of data.fichas) {
+      const status = FICHA_STATUS[f.matchStatus] || FICHA_STATUS.ok;
+      const row = document.createElement("div");
+      row.className = "file-row ficha-row";
+      row.innerHTML = `
+        <span class="file-name"></span>
+        <span class="file-info"><span class="pill ${status.pill}"></span> <span class="ficha-date"></span></span>
+        <span class="ficha-note"></span>
+      `;
+      row.querySelector(".file-name").textContent = `📄 ${f.clientName}${f.folder ? `  ·  ${f.folder}` : ""}`;
+      row.querySelector(".pill").textContent = status.text;
+      row.querySelector(".ficha-date").textContent = `subida ${formatDateTime(f.syncedAt)}`;
+      row.querySelector(".ficha-note").textContent = f.matchNote || "";
+      fichasList.appendChild(row);
+    }
+  } catch (err) {
+    fichasList.innerHTML = `<div class="members-empty"></div>`;
+    fichasList.firstChild.textContent = err?.message || "No se pudo leer el estado de las fichas.";
+  } finally {
+    fichasSyncButton.disabled = false;
+  }
+}
+
+fichasSyncButton.addEventListener("click", () => loadFichas(true));
+
+async function runTaskNow(id, button) {
+  button.disabled = true;
+  const res = await fetch(`/api/tasks/${id}/run`, { method: "POST" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    button.disabled = false;
+    button.textContent = data.error || "Error";
+    return;
+  }
+  loadTasks();
+}
+
+// Pide un segundo clic para confirmar (sin diálogos del navegador).
+async function deleteTask(id, button) {
+  if (button.dataset.armed !== "1") {
+    button.dataset.armed = "1";
+    button.textContent = "¿Seguro? Pulsa otra vez";
+    setTimeout(() => {
+      button.dataset.armed = "";
+      button.textContent = "Eliminar";
+    }, 4000);
+    return;
+  }
+  await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+  loadTasks();
+}
+
+document.getElementById("tasks-refresh").addEventListener("click", () => {
+  loadTasks();
+  loadFichas();
+  loadFiles();
+});
+
+async function loadFiles() {
+  try {
+    const res = await fetch("/api/files");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    currentFilesDir = data.root;
+    filesRoot.innerHTML = `Carpeta: <code></code>`;
+    filesRoot.querySelector("code").textContent = data.root;
+    filesOpenButton.hidden = !desktop;
+
+    filesList.innerHTML = "";
+    if (data.files.length === 0) {
+      filesList.innerHTML = `<div class="members-empty">La carpeta está vacía. Crea dentro una carpeta "Fichas" con la ficha de cada cliente.</div>`;
+      return;
+    }
+    for (const f of data.files) {
+      const row = document.createElement("div");
+      row.className = `file-row ${f.type}`;
+      const depth = f.path.replace(/\/$/, "").split("/").length - 1;
+      row.innerHTML = `<span class="file-name"></span><span class="file-info"></span>`;
+      row.style.paddingLeft = `${16 + depth * 18}px`;
+      row.querySelector(".file-name").textContent = `${f.type === "folder" ? "📁" : "📄"} ${f.path.replace(/\/$/, "").split("/").pop()}`;
+      row.querySelector(".file-info").textContent = f.type === "file" ? `${f.size_kb} KB · ${f.modified}` : "";
+      filesList.appendChild(row);
+    }
+  } catch (err) {
+    filesList.innerHTML = `<div class="members-empty">No se pudo leer la carpeta de fichas.</div>`;
+  }
+}
+
+filesOpenButton.addEventListener("click", () => desktop?.openFolder(currentFilesDir));
+
+// --- Ajustes -----------------------------------------------------------------------------------
+const settingsForm = document.getElementById("settings-form");
+const settingsResult = document.getElementById("settings-result");
+const setupBanner = document.getElementById("setup-banner");
+const filesPickButton = document.getElementById("set-files-pick");
+const autostartRow = document.getElementById("autostart-row");
+const autostartInput = document.getElementById("set-autostart");
+
+async function loadSettings() {
+  settingsResult.textContent = "";
+  settingsResult.className = "settings-result";
+  try {
+    const s = await (await fetch("/api/settings")).json();
+    document.getElementById("set-openai-key").value = "";
+    document.getElementById("set-openai-key").placeholder = s.openaiApiKey ? `Guardada (${s.openaiApiKey}) — escribe para cambiarla` : "sk-…";
+    document.getElementById("set-supabase-key").value = "";
+    document.getElementById("set-supabase-key").placeholder = s.supabaseServiceRoleKey
+      ? `Guardada (${s.supabaseServiceRoleKey}) — escribe para cambiarla`
+      : "eyJ…";
+    document.getElementById("set-openai-model").value = s.openaiModel;
+    document.getElementById("set-supabase-url").value = s.supabaseUrl;
+    document.getElementById("set-files-dir").value = s.localFilesDir;
+    document.getElementById("set-require-confirmation").checked = s.requireConfirmation;
+  } catch {
+    settingsResult.textContent = "No se pudieron cargar los ajustes.";
+    settingsResult.className = "settings-result error";
+  }
+
+  filesPickButton.hidden = !desktop;
+  autostartRow.hidden = !desktop?.getAutostart;
+  if (desktop?.getAutostart) autostartInput.checked = await desktop.getAutostart();
+}
+
+filesPickButton.addEventListener("click", async () => {
+  const folder = await desktop?.pickFolder(document.getElementById("set-files-dir").value);
+  if (folder) document.getElementById("set-files-dir").value = folder;
+});
+
+autostartInput.addEventListener("change", () => desktop?.setAutostart(autostartInput.checked));
+
+const CHECK_LABELS = { supabase: "Supabase", openai: "OpenAI", folder: "Carpeta de fichas" };
+
+settingsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const saveButton = document.getElementById("settings-save");
+  saveButton.disabled = true;
+  settingsResult.className = "settings-result";
+  settingsResult.textContent = "Guardando y comprobando la conexión…";
+
+  try {
+    const body = Object.fromEntries(new FormData(settingsForm).entries());
+    body.requireConfirmation = document.getElementById("set-require-confirmation").checked;
+    const res = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    const lines = Object.entries(data.checks).map(
+      ([key, value]) => `${value === "ok" ? "✅" : "❌"} ${CHECK_LABELS[key] || key}${value === "ok" ? "" : `: ${value.replace(/^Error: /, "")}`}`,
+    );
+    settingsResult.textContent = lines.join("\n");
+    settingsResult.className = `settings-result ${data.ok ? "ok" : "error"}`;
+    if (data.ok) {
+      setupBanner.hidden = true;
+      refreshStats();
+    }
+    await loadSettings().then(() => {
+      settingsResult.textContent = lines.join("\n");
+      settingsResult.className = `settings-result ${data.ok ? "ok" : "error"}`;
+    });
+  } catch (err) {
+    settingsResult.textContent = `No se pudo guardar: ${err.message || err}`;
+    settingsResult.className = "settings-result error";
+  } finally {
+    saveButton.disabled = false;
+  }
+});
+
+async function init() {
+  // Primera vez (o claves borradas): directamente a Ajustes, con un aviso de bienvenida.
+  try {
+    const status = await (await fetch("/api/status")).json();
+    if (status.missingSettings.length > 0) {
+      setupBanner.hidden = false;
+      switchView("settings");
+      statusDot.className = "status-dot offline";
+      statusText.textContent = "Falta configuración";
+      return;
+    }
+  } catch {
+    // Si falla, seguimos con el chat normal y ya se verá el error ahí.
+  }
+
   loadHistory();
   loadConversationList();
   refreshStats();

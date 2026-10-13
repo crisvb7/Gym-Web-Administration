@@ -1,212 +1,165 @@
-# Gym AI Assistant
+# OlimpIA — asistente de IA del gimnasio
 
-Chatbot de IA **independiente** de la web de administración del gimnasio. Es una app de
-Node.js/TypeScript (servidor web propio + interfaz de chat) que habla directamente con la misma
-base de datos Supabase que usa `Gym-Web-Administration`, para consultar y gestionar socios, clases,
-facturación, rutinas de ejercicios y planes de comidas en lenguaje natural.
+App de escritorio (Windows y Mac) con un chat de IA que trabaja directamente sobre la misma base de
+datos Supabase que la web de administración: consulta y gestiona socios, clases, pagos, **rutinas**
+y **planes de comidas**, lee las **fichas de los clientes** (PDF, Word, Excel, texto o fotos) y hace
+tareas **automáticas** (p.ej. "cada día 1, la rutina y la dieta del mes de cada cliente según su
+ficha").
 
-No es un componente de React ni se despliega junto a la web: es un programa aparte que ejecutas en
-tu propia máquina (o en un servidor) con `npm start`, con su propia interfaz en el navegador.
+No forma parte de la web ni se despliega con ella: es un programa aparte que se instala en el
+ordenador del gimnasio.
 
-## Cómo funciona
+## Para el dueño del gimnasio
 
-- Usa la [API de OpenAI](https://platform.openai.com/docs) (ChatGPT) con **function calling /
-  tool use**: el modelo decide qué función necesita llamar (buscar un socio, asignar una rutina,
-  leer un Excel...) y el script ejecuta esa función contra Supabase o el sistema de archivos.
-- **Ninguna escritura a la base de datos ocurre sin que tú lo confirmes.** Las herramientas que
-  modifican datos (`update_member`, `create_class`, `register_payment`, `assign_workout_plan`,
-  `assign_meal_plan`) tienen el parámetro que activa la escritura real oculto para el modelo: la
-  IA solo puede generar una propuesta con resumen. Solo el clic en el botón **✅ Confirmar** de la
-  interfaz (o responder `s`/`n` en la consola) ejecuta el cambio de verdad — esto es así tanto si
-  la propuesta viene de un mensaje tuyo como de una **tarea programada automática**.
-- Las herramientas de solo lectura (`list_members`, `list_classes`, `list_exercises`,
-  `list_recipes`, `dashboard_summary`, etc.) no piden confirmación.
+### Instalar
 
-## 1. Instalación
+1. Ejecuta `OlimpIA-Setup-1.2.0.exe`. Como el instalador no está firmado, Windows puede mostrar
+   "Windows protegió su PC": pulsa **Más información → Ejecutar de todas formas**.
+2. Al abrirla por primera vez aparece la pantalla de **Ajustes**: pega la clave de OpenAI y la
+   clave de Supabase (service_role) y pulsa **Guardar**. La app comprueba al momento que las dos
+   funcionan.
+3. Listo. OlimpIA queda configurada para **arrancar sola al encender el ordenador** (oculta, con
+   su icono en la bandeja del sistema, junto al reloj). Se puede desactivar en Ajustes.
 
-Requiere Node.js 18 o superior.
+### Fichas de clientes
+
+- Por defecto la carpeta es `Documentos\OlimpIA` (se puede cambiar en Ajustes → "Elegir…").
+- Crea dentro una carpeta `Fichas` y deja ahí la ficha de cada cliente **con su nombre y
+  apellidos**, igual que en la web: `Fichas\María López.pdf`, `Fichas\Juan Pérez.docx`… También vale
+  una subcarpeta por cliente con varios documentos (`Fichas\María López\…`).
+- Formatos: PDF (con texto, no escaneado), Word `.docx`, Excel, CSV, `.txt`, `.md`, `.rtf`. Las
+  fotos o los PDF escaneados se pueden adjuntar en el chat con 📎.
+- También se le puede pedir por el chat: "crea la carpeta Fichas", "guarda esta ficha como la de
+  María López" (adjuntándola), "apunta en la ficha de Juan que se ha lesionado el tobillo".
+
+### Rutinas y dietas automáticas
+
+Pídeselo en el chat, por ejemplo:
+
+> Cada día 1 de cada mes, prepara la rutina de entrenamiento y el plan de comidas del mes a medida
+> para cada cliente según su ficha de la carpeta Fichas.
+
+Por defecto los planes **se guardan solos**. Si pides revisarlos antes, quedan con un botón ✅
+Confirmar en la conversación "🕒 Tareas automáticas" (ojo: el cliente no los ve hasta que se
+confirman).
+
+- Para cada cliente lee su ficha, lo busca en la base de datos y tiene en cuenta sus marcas, lo que
+  ha entrenado y su plan anterior. Si no lo encuentra o hay dos socios con el mismo nombre, no le
+  asigna nada y lo explica.
+- **Las tareas se hacen en la nube (Supabase), aunque el ordenador esté apagado.** El ordenador solo
+  hace falta para subir las fichas: OlimpIA revisa la carpeta al arrancar y cada minuto mientras
+  está abierta, y sube las que han cambiado. Basta con que el ordenador se encienda alguna vez
+  después de editar una ficha.
+- La pantalla **Tareas y fichas** muestra las tareas, el resultado de la última ejecución (qué
+  clientes se quedaron sin cambios), un botón **▶ Ejecutar ahora** y el estado de cada ficha en la
+  nube: ✅ subida, o ⚠️ si no hay ningún socio con ese nombre, hay varios, o es una imagen que no se
+  puede leer.
+- Los resultados llegan al hilo "🕒 Tareas automáticas" la próxima vez que se abre OlimpIA. Los
+  clientes ven sus planes en la app del gimnasio desde el primer momento.
+
+### Seguridad
+
+- Por defecto OlimpIA **hace directamente lo que se le pide** (asignar rutinas, registrar pagos…).
+  Si se prefiere revisar antes cada cambio, en Ajustes se activa "Pedir confirmación": los cambios
+  quedan con un botón ✅ Confirmar. Cada tarea automática puede pedir confirmación aunque el ajuste
+  general sea "directo".
+- La clave de Supabase (service_role) da acceso total a la base de datos: se guarda solo en este
+  ordenador (`%APPDATA%\OlimpIA\.env`) y el servidor interno solo acepta conexiones del propio
+  ordenador, nunca de otros equipos de la red.
+
+## Para quien mantenga esto
+
+Node.js 18+.
 
 ```bash
 cd ai-assistant
 npm install
+npm start            # servidor + interfaz en http://localhost:3000 (configura en Ajustes, o copia .env.example a .env)
+npm run dev          # igual, reiniciando al guardar
+npm run cli          # versión de consola
+npm run typecheck
+npm run electron     # app de escritorio en modo desarrollo (usa el .env del proyecto)
+npm run dist:win     # instalador de Windows → release/OlimpIA-Setup-<versión>.exe (también se puede generar desde Mac)
+npm run dist:mac     # .dmg para Mac
+npm run deploy:cloud # empaqueta el worker y despliega la función olimpia-tasks en Supabase
 ```
 
-## 2. Configuración (.env)
+Datos de la app instalada: `%APPDATA%\OlimpIA\` en Windows, `~/Library/Application Support/OlimpIA/`
+en Mac (`.env`, `data/conversations`, `data/scheduled-tasks.json`, `server.log`). Si existe la
+configuración de la versión anterior (`GymBot AI`), se copia automáticamente la primera vez.
 
-```bash
-cp .env.example .env
-```
+### Cómo funciona
 
-Rellena `.env` con:
-
-- `OPENAI_API_KEY`: tu clave de la API de OpenAI, desde https://platform.openai.com/api-keys
-- `OPENAI_MODEL` (opcional): modelo a usar, debe soportar function calling y (para adjuntar
-  imágenes) visión. Por defecto `gpt-4o`.
-- `SUPABASE_URL`: ya viene rellenada (`https://vnockjqtkbhgytmmbdlb.supabase.co`), es la misma que
-  usa la web.
-- `SUPABASE_SERVICE_ROLE_KEY`: la **service_role key** de tu proyecto Supabase (⚠️ **no** es la
-  misma que la `anon key` que usa la web en `src/lib/supabase.ts`). Se obtiene en:
-  Supabase Dashboard → Settings → API → Project API keys → `service_role`.
-- `LOCAL_FILES_DIR` (opcional): carpeta que el asistente puede leer en cualquier momento (ver
-  abajo). Por defecto, `ai-assistant/shared-files/`.
-
-> **Importante sobre la service_role key:** salta las reglas de Row Level Security (RLS) y da
-> acceso total a la base de datos. Por eso:
-> - Nunca la subas a git (`.env` ya está en `.gitignore`).
-> - Nunca la pongas en código de frontend/navegador.
-> - Este script debe ejecutarse solo en tu máquina o en un servidor de confianza, nunca
->   exponerse públicamente.
-
-## 3. Ejecución
-
-```bash
-npm start
-```
-
-Abre **http://localhost:3000** en el navegador. Ejemplos de peticiones:
-
-- "¿Cómo va el gimnasio hoy?"
-- "Súbele la cuota a 45€ a Juan Pérez" *(email si hay varios con el mismo nombre)*
-- "Prepárame la rutina de octubre para María López, quiere ganar masa muscular"
-- "Asígnale el plan de comidas de esta semana a Pedro, bajo en calorías"
-- "Mira el Excel de la carpeta compartida y dime qué clientes hay"
-- "Cada día 1 de mes, revisa quién tiene el pago pendiente y avísame"
-
-También existe una versión de consola (sin interfaz web ni tareas programadas): `npm run cli`.
-
-Durante el desarrollo puedes usar `npm run dev` (reinicia automáticamente al guardar cambios) o
-`npm run typecheck` para comprobar tipos sin compilar.
-
-## App de escritorio (Electron)
-
-Además de la versión web, existe una app instalable de Windows que abre la misma interfaz en una
-ventana nativa (con icono propio y en la bandeja del sistema), arrancando el mismo servidor por
-dentro — no duplica nada, es un envoltorio sobre el mismo código.
-
-**Probarla sin instalar** (modo desarrollo, usa el `.env` del proyecto):
-```bash
-npm run electron
-```
-
-**Generar el instalador** (`release\GymBot AI Setup 1.0.0.exe`):
-```bash
-npm run dist:win
-```
-
-La primera vez que abras la app instalada, crea un `.env` en tu carpeta de datos de usuario
-(`%APPDATA%\GymBot AI\.env`) y te pide rellenarlo (clave de OpenAI + Supabase) antes de arrancar —
-los datos (conversaciones, tareas programadas, carpeta compartida) también viven ahí, no dentro de
-la carpeta de instalación. Cerrar la ventana no cierra la app: se queda en la bandeja del sistema
-para que las tareas programadas sigan funcionando; usa "Salir" en el icono de la bandeja para
-cerrarla del todo.
-
-> **Nota para quien mantenga esto — bug conocido de `electron-builder` en Windows:** al empaquetar,
-> `electron-builder` puede fallar con `EPERM: operation not permitted, rename ...win-unpacked.tmp
-> -> ...win-unpacked` al extraer el binario de Electron. No es un problema de antivirus/permisos
-> (se descartó exhaustivamente: exclusión de Defender confirmada por GUI, Controlled Folder Access
-> desactivado, sin antivirus de terceros, falla igual como Administrador) — es un bug del propio
-> extractor de `electron-builder` en Windows. El workaround (ya aplicado en `package.json` vía
-> `"electronDist": ".electron-dist"`) es extraer el Electron descargado con la herramienta nativa
-> de Windows en vez de con el extractor interno:
-> ```powershell
-> Expand-Archive -Path "$env:LOCALAPPDATA\electron\Cache\<hash>\electron-v44.0.0-win32-x64.zip" -DestinationPath ".electron-dist" -Force
-> ```
-> (el hash de la carpeta cambia; búscalo con `Get-ChildItem "$env:LOCALAPPDATA\electron\Cache" -Recurse -Filter *.zip`).
-> Si subes la versión de Electron en el futuro, tendrás que repetir este paso con el nuevo `.zip` y
-> actualizar `electronVersion` en `package.json`.
-
-## Historial de conversaciones
-
-Cada conversación se guarda en su propio archivo (`data/conversations/<id>.json`) y sobrevive a
-reinicios del servidor. En la barra lateral tienes:
-
-- **＋ Nuevo chat**: empieza una conversación nueva sin perder las anteriores.
-- **Lista de conversaciones pasadas**: haz clic para retomar cualquiera donde la dejaste (con su
-  historial completo y cualquier confirmación pendiente todavía sin resolver). El título se toma
-  automáticamente de tu primer mensaje. Pasa el ratón por encima para ver el botón ✕ y borrarla.
-
-## Carpeta compartida (archivos sin subir cada vez)
-
-Cualquier archivo que dejes en `LOCAL_FILES_DIR` (por defecto `ai-assistant/shared-files/`) es
-visible para el asistente en cualquier momento, sin tener que adjuntarlo en el chat — solo
-pídeselo ("mira el Excel de clientes"). Soporta hojas de cálculo (XLSX/XLS/CSV) y texto plano
-(.txt/.md/.json). Las imágenes solo se pueden interpretar adjuntándolas directamente en el chat
-(el botón 📎), no desde esta carpeta.
-
-## Tareas programadas (automatización)
-
-Puedes pedirle al bot, en lenguaje natural, que haga algo de forma recurrente: "cada día 31,
-prepara las rutinas de todos los clientes según el Excel de la carpeta, adaptando cada una a sus
-notas". El bot crea una tarea (guardada en `data/scheduled-tasks.json`) que se revisa y ejecuta
-sola, sin que tengas el navegador abierto.
-
-**Importante:**
-- El proceso de Node (`npm start`) tiene que seguir **encendido** para que las tareas se disparen —
-  no hace falta el navegador abierto, pero sí el servidor. Si apagas el ordenador o cierras la
-  terminal, las tareas no se ejecutarán hasta que vuelvas a arrancarlo (al arrancar, comprueba
-  inmediatamente si hay alguna tarea pendiente de ese día). Para que esto funcione 24/7 de verdad,
-  necesitas dejar el proceso corriendo en una máquina que no se apague (un servidor, un Mac mini,
-  un PC siempre encendido...) — con Windows Task Scheduler, `pm2`, o similar.
-- El **contenido** de lo que la tarea genera (rutinas, comidas...) sigue pidiendo tu confirmación
-  con el botón, exactamente igual que si lo hubieras pedido tú por chat — una tarea automática
-  nunca escribe datos reales de un cliente sin que la apruebes. Abre la web cuando quieras revisar
-  y confirmar lo que se haya preparado.
-- Las tareas automáticas escriben en su propio hilo de conversación fijo, **"🕒 Tareas
-  automáticas"**, visible en el historial de la barra lateral — ábrelo cuando quieras revisar y
-  confirmar lo que se haya preparado mientras no mirabas.
-
-## Estructura del proyecto
+- Usa la API de OpenAI con **tool calling**: el modelo decide qué herramienta llamar y el servidor la
+  ejecuta contra Supabase o la carpeta de fichas. El modelo se cambia en Ajustes (por defecto
+  `gpt-5.5`: con `gpt-4o` los planes mensuales salían con 2-3 ejercicios por sesión y progresiones
+  irreales; tarda ~3 min por cliente en un plan mensual de rutina + comidas).
+- Las herramientas que escriben datos (`update_member`, `create_class`, `register_payment`,
+  `assign_workout_plan`, `assign_meal_plan`, `delete_workout_plan`, `delete_meal_plan`) no exponen
+  al modelo el parámetro que escribe de verdad: lo decide `writeMode.ts` en cada turno (ajuste
+  `REQUIRE_CONFIRMATION` o el de la tarea programada). En modo confirmación, solo el botón
+  **Confirmar** (o `s` en la consola) la ejecuta.
+- Antes de guardar una rutina se comprueban siempre las marcas personales del socio
+  (`personalRecordsCheck.ts`, ±10 %; los pesos dictados por el usuario mandan) y que no tenga ya un
+  plan en esas fechas (`existingPlan.ts`; para rehacerlo, `replace_existing`).
+- **Tareas en la nube** (`src/cloud/`): las tareas viven en la tabla `olimpia_tasks`. pg_cron llama
+  cada minuto a la función `olimpia-tasks` (`supabase/functions/`), que ejecuta `cloud/worker.ts`:
+  lanza las tareas que tocan (hora del gimnasio), crea un trabajo por cliente con su ficha
+  (`olimpia_fichas`) y avanza cada trabajo **una ronda del modelo por llamada**, con la Responses
+  API en modo `background`: ninguna llamada espera al modelo, así que el límite de 150 s de las
+  funciones no importa. Usa las mismas herramientas y comprobaciones que el chat (menos las de la
+  carpeta local). La app de escritorio (`cloud/sync.ts`) sube la clave/modelo de OpenAI y la zona
+  horaria a `olimpia_settings`, sube las fichas que usan las tareas y trae los resultados
+  (`olimpia_task_jobs`) a su hilo "🕒 Tareas automáticas", con sus botones Confirmar.
+- Las tablas `olimpia_*` tienen RLS sin políticas y ningún permiso para anon/authenticated: solo la
+  service_role (app y función) las ve. La migración es
+  `supabase/migrations/20261013120000_olimpia_cloud_tasks.sql`.
+- Si cambias algo que usa la nube (herramientas, system prompt, worker), vuelve a desplegar la
+  función: `npm run deploy:cloud` (empaqueta con esbuild en `worker.bundle.js` y despliega).
+- A cada turno se le da un system prompt nuevo (con la fecha de hoy) y solo los mensajes recientes
+  que caben en el contexto; el historial completo se guarda en disco.
 
 ```
 ai-assistant/
   src/
-    server.ts          # servidor web (interfaz de chat, confirmaciones, historial)
-    index.ts            # versión de consola (npm run cli)
-    chatEngine.ts         # bucle de conversación + tool calling + confirmaciones
-    conversationStore.ts   # conversaciones persistentes en disco (data/conversations/)
-    scheduler.ts             # comprueba y dispara las tareas programadas
-    scheduledTasks.ts          # persistencia de tareas (data/scheduled-tasks.json)
-    fileIngestion.ts            # interpreta imágenes/Excel/CSV adjuntados o leídos
-    config.ts                    # carga y valida las variables de entorno
-    supabaseClient.ts              # cliente de Supabase (service_role)
-    stats.ts                        # estadísticas del panel (barra superior)
-    cli.ts                            # utilidades de consola
-    systemPrompt.ts                    # instrucciones del asistente (system prompt)
+    server.ts            # servidor web: chat, confirmaciones, historial, ajustes, tareas
+    index.ts             # versión de consola (npm run cli)
+    chatEngine.ts        # bucle de conversación + tool calling + confirmaciones
+    config.ts            # ajustes (.env), editables en caliente desde la interfaz
+    conversationStore.ts # conversaciones en disco (data/conversations/)
+    scheduledTasks.ts    # tareas programadas (tabla olimpia_tasks) y cuándo toca cada una
+    cloud/
+      worker.ts          # worker de la nube: lanza tareas y avanza cada cliente paso a paso
+      cloudTools.ts      # herramientas disponibles en la nube
+      sync.ts            # app de escritorio ↔ nube: ajustes, fichas, resultados
+      edge.ts            # entrada que se empaqueta para la función de Supabase
+    fileIngestion.ts     # lee PDF, Word, Excel, CSV, texto e imágenes
+    uploads.ts           # copia de los adjuntos del chat (para archivarlos en la carpeta)
+    writeMode.ts         # modo de escritura del turno: directo o con botón Confirmar
+    dates.ts             # fechas en hora local (no UTC)
+    systemPrompt.ts      # instrucciones del asistente
     tools/
       confirmation.ts    # protocolo de confirmación + salvaguarda de "mes completo"
-      registry.ts           # mapa tool -> implementación real (para el botón Confirmar)
-      members.ts               # buscar/ver/actualizar socios
-      classes.ts                  # listar/crear clases y disciplinas
-      billing.ts                     # listar facturas, registrar pagos
-      workouts.ts                       # ejercicios y rutinas asignadas
-      nutrition.ts                         # recetas y planes de comidas asignados
-      localFiles.ts                           # leer la carpeta compartida
-      tasks.ts                                   # crear/listar/borrar tareas programadas
-      dashboard.ts                                  # resumen general del día
-      index.ts                                         # exporta todas las herramientas
-  public/               # frontend (HTML/CSS/JS sin build, servido por Express)
-  shared-files/         # carpeta compartida por defecto (ver arriba)
-  data/                 # tareas programadas persistidas (no se sube a git)
+      registry.ts        # herramientas de escritura que ejecuta el botón Confirmar
+      existingPlan.ts    # evita duplicar planes y sustituye sin perder el anterior si falla
+      personalRecordsCheck.ts # pesos de la rutina frente a las marcas personales
+      members.ts, classes.ts, billing.ts, workouts.ts, nutrition.ts, activity.ts, dashboard.ts
+      localFiles.ts      # carpeta de fichas: listar, leer, crear carpetas, guardar notas y adjuntos
+      tasks.ts           # crear/listar/borrar tareas programadas
+  public/                # interfaz (HTML/CSS/JS sin build)
   electron/
-    main.cjs              # proceso principal de Electron (arranca el servidor + ventana)
-    icon.ico / icon.png     # icono de la app
-  .electron-dist/       # Electron pre-extraído para el build en Windows (no se sube a git)
+    main.cjs             # app de escritorio: servidor interno, ventana, bandeja, arranque con el sistema
+    preload.cjs          # puente seguro interfaz ↔ escritorio (elegir carpeta, arranque automático)
+    icon.ico/.icns/.png, tray.png
 ```
 
-## Ampliar el asistente
+### Ampliar el asistente
 
-Para añadir una nueva capacidad:
-
-1. Crea un nuevo archivo en `src/tools/` (o añade una función al archivo existente que
-   corresponda) usando `zodFunction` (de `openai/helpers/zod`) para definir nombre, descripción,
-   schema de parámetros (Zod) y la función `function` que consulta/escribe en Supabase.
-2. Si la herramienta **escribe** datos: sigue el patrón de `assignWorkoutPlanImpl` en
-   `workouts.ts` — separa la implementación real (`fooImpl`, con un parámetro `confirmed`) del
-   `zodFunction` expuesto al modelo (que usa `.omit({ confirmed: true })` sobre el schema y llama
-   a `fooImpl({ ...input, confirmed: false })`), y añádela también a `tools/registry.ts` para que
-   el botón "Confirmar" pueda ejecutarla directamente.
-3. Expórtala desde `src/tools/index.ts` añadiéndola al array `tools`.
-
-No hace falta tocar `chatEngine.ts` ni `server.ts`: el modelo descubre las herramientas nuevas
-automáticamente a partir de su descripción, y el mecanismo de confirmación/historial ya es
-genérico para cualquier herramienta nueva que sigas ese patrón.
+1. Crea la herramienta en `src/tools/` con `zodFunction` (de `openai/helpers/zod`): nombre,
+   descripción, parámetros (Zod) y la función que consulta/escribe.
+2. Si **escribe** datos, sigue el patrón de `assignWorkoutPlanImpl` en `workouts.ts`: implementación
+   real `fooImpl` con un parámetro `confirmed`, y un `zodFunction` con `.omit({ confirmed: true })`
+   que llama a `fooImpl({ ...input, confirmed: !confirmationRequired() })`. Añádela a
+   `tools/registry.ts`.
+3. Añádela al array `tools` de `src/tools/index.ts` (y a `TOOL_TAGS` en `public/app.js` para su
+   etiqueta en el chat).

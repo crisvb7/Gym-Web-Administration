@@ -1,8 +1,8 @@
 import { updateMemberImpl } from "./members.js";
 import { createClassImpl } from "./classes.js";
 import { registerPaymentImpl } from "./billing.js";
-import { assignWorkoutPlanImpl } from "./workouts.js";
-import { assignMealPlanImpl } from "./nutrition.js";
+import { assignWorkoutPlanImpl, deleteWorkoutPlanImpl } from "./workouts.js";
+import { assignMealPlanImpl, deleteMealPlanImpl } from "./nutrition.js";
 
 /**
  * Implementaciones "en crudo" de las herramientas que escriben datos, indexadas por nombre.
@@ -16,4 +16,6 @@ export const writeToolImplementations: Record<string, (args: any) => Promise<str
   register_payment: registerPaymentImpl,
   assign_workout_plan: assignWorkoutPlanImpl,
   assign_meal_plan: assignMealPlanImpl,
+  delete_workout_plan: deleteWorkoutPlanImpl,
+  delete_meal_plan: deleteMealPlanImpl,
 };

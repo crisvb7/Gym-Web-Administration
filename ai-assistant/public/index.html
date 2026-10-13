@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GymBot AI · Asistente de Administración</title>
+  <title>OlimpIA · Asistente del gimnasio</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-avatar">G</div>
+        <div class="brand-avatar"><img src="/favicon.png" alt="" /></div>
         <div class="brand-text">
-          <div class="brand-title">GymBot AI</div>
-          <div class="brand-subtitle">Admin Assistant</div>
+          <div class="brand-title">OlimpIA</div>
+          <div class="brand-subtitle">Asistente del gimnasio</div>
         </div>
       </div>
 
@@ -22,9 +23,17 @@
           <span class="nav-icon">💬</span>
           <span>Chat IA</span>
         </button>
+        <button class="nav-item" data-nav="tasks" type="button">
+          <span class="nav-icon">🕒</span>
+          <span>Tareas y fichas</span>
+        </button>
         <button class="nav-item" data-nav="members" type="button">
           <span class="nav-icon">👥</span>
           <span>Miembros</span>
+        </button>
+        <button class="nav-item" data-nav="settings" type="button">
+          <span class="nav-icon">⚙️</span>
+          <span>Ajustes</span>
         </button>
       </nav>
 
@@ -49,7 +58,7 @@
         <div class="status">
           <span id="status-dot" class="status-dot"></span>
           <div>
-            <div class="topbar-title">GymBot AI</div>
+            <div class="topbar-title">OlimpIA</div>
             <div class="topbar-subtitle" id="status-text">Conectando…</div>
           </div>
         </div>
@@ -98,6 +107,7 @@
             <button type="button" data-prompt="¿Qué socios tienen el pago pendiente este mes?">💳 Pagos pendientes</button>
             <button type="button" data-prompt="¿Qué clases hay programadas hoy?">🗓️ Clases de hoy</button>
             <button type="button" data-prompt="Dame un resumen general del gimnasio hoy.">📊 Resumen del día</button>
+            <button type="button" data-prompt="Cada día 1 de cada mes, prepara la rutina de entrenamiento y el plan de comidas del mes a medida para cada cliente según su ficha de la carpeta Fichas.">🗓️ Rutinas mensuales automáticas</button>
           </div>
 
           <div id="attachment-preview" class="attachment-preview" hidden>
@@ -106,16 +116,16 @@
           </div>
 
           <form class="chat-input" id="chat-form">
-            <input type="file" id="file-input" accept="image/*,.xlsx,.xls,.csv" hidden />
-            <button type="button" id="attach-button" aria-label="Adjuntar imagen o archivo" title="Adjuntar imagen o Excel/CSV">📎</button>
+            <input type="file" id="file-input" accept="image/*,.pdf,.docx,.xlsx,.xls,.csv,.txt,.md,.rtf" hidden />
+            <button type="button" id="attach-button" aria-label="Adjuntar archivo" title="Adjuntar imagen, PDF, Word, Excel o texto">📎</button>
             <textarea
               id="chat-textarea"
-              placeholder="Escribe un comando, o adjunta una foto/Excel de la rutina…"
+              placeholder="Escribe lo que necesites, o adjunta una ficha (PDF, Word, Excel, foto…)"
               rows="1"
             ></textarea>
             <button type="submit" id="send-button" aria-label="Enviar">➤</button>
           </form>
-          <div class="chat-hint">Enter para enviar · Shift+Enter para nueva línea · 📎 para adjuntar imagen o Excel/CSV</div>
+          <div class="chat-hint">Enter para enviar · Shift+Enter para nueva línea · 📎 para adjuntar PDF, Word, Excel o fotos</div>
         </section>
       </div>
 
@@ -146,6 +156,109 @@
             </table>
             <div class="members-empty" id="members-empty" hidden>No se encontraron socios.</div>
           </div>
+        </section>
+      </div>
+      <div class="view" id="view-tasks" hidden>
+        <section class="page-view">
+          <div class="members-header">
+            <div>
+              <h2>Tareas automáticas</h2>
+              <p class="members-subtitle">
+                Lo que OlimpIA hace sola en la nube, aunque el ordenador esté apagado. Para crear una, pídeselo
+                en el chat (p.ej. "cada día 1, prepara la rutina del mes de cada cliente según su ficha").
+              </p>
+            </div>
+            <button type="button" class="btn-secondary" id="tasks-refresh">↻ Actualizar</button>
+          </div>
+          <div class="card-list" id="tasks-list"></div>
+
+          <div class="members-header section-gap">
+            <div>
+              <h2>Fichas en la nube</h2>
+              <p class="members-subtitle">
+                Las fichas que usan las tareas. OlimpIA las sube sola cada vez que está abierta y cambian;
+                las tareas usan la última versión subida.
+              </p>
+            </div>
+            <button type="button" class="btn-secondary" id="fichas-sync">☁️ Subir ahora</button>
+          </div>
+          <div class="fichas-sync-info" id="fichas-sync-info"></div>
+          <div class="files-list" id="fichas-list"></div>
+
+          <div class="members-header section-gap">
+            <div>
+              <h2>Carpeta de fichas</h2>
+              <p class="members-subtitle">
+                Deja aquí la ficha de cada cliente (PDF, Word, Excel o texto) con su nombre, p.ej.
+                <code>Fichas/María López.pdf</code>. OlimpIA las lee al preparar rutinas y dietas.
+              </p>
+            </div>
+            <div class="row-actions">
+              <button type="button" class="btn-secondary" id="files-open" hidden>📂 Abrir carpeta</button>
+            </div>
+          </div>
+          <div class="files-root" id="files-root"></div>
+          <div class="files-list" id="files-list"></div>
+        </section>
+      </div>
+
+      <div class="view" id="view-settings" hidden>
+        <section class="page-view">
+          <div class="members-header">
+            <div>
+              <h2>Ajustes</h2>
+              <p class="members-subtitle">Claves de acceso y carpeta de fichas. Se guardan solo en este ordenador.</p>
+            </div>
+          </div>
+
+          <div class="setup-banner" id="setup-banner" hidden>
+            👋 Bienvenido a OlimpIA. Antes de empezar, rellena la clave de OpenAI y la clave de Supabase y pulsa
+            <strong>Guardar</strong>.
+          </div>
+
+          <form class="settings-form" id="settings-form" autocomplete="off">
+            <label>
+              <span>Clave de OpenAI</span>
+              <input type="password" name="openaiApiKey" id="set-openai-key" placeholder="sk-…" />
+              <small id="set-openai-key-hint">Se obtiene en platform.openai.com → API keys.</small>
+            </label>
+            <label>
+              <span>Modelo de OpenAI</span>
+              <input type="text" name="openaiModel" id="set-openai-model" placeholder="gpt-5.5" />
+              <small>Debe admitir herramientas (tool calling) y, para leer fotos, visión.</small>
+            </label>
+            <label>
+              <span>Clave de Supabase (service_role)</span>
+              <input type="password" name="supabaseServiceRoleKey" id="set-supabase-key" placeholder="eyJ…" />
+              <small id="set-supabase-key-hint">Supabase → Settings → API → service_role. Da acceso total: no la compartas.</small>
+            </label>
+            <label>
+              <span>URL de Supabase</span>
+              <input type="text" name="supabaseUrl" id="set-supabase-url" />
+            </label>
+            <label>
+              <span>Carpeta de fichas y archivos</span>
+              <div class="input-row">
+                <input type="text" name="localFilesDir" id="set-files-dir" />
+                <button type="button" class="btn-secondary" id="set-files-pick" hidden>Elegir…</button>
+              </div>
+              <small>OlimpIA solo puede leer y escribir dentro de esta carpeta.</small>
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" id="set-require-confirmation" />
+              <span>Pedir confirmación antes de guardar cambios en la base de datos (rutinas, comidas, socios, pagos…).
+                Desactivado: OlimpIA hace directamente lo que le pidas.</span>
+            </label>
+            <label class="checkbox-row" id="autostart-row" hidden>
+              <input type="checkbox" id="set-autostart" />
+              <span>Abrir OlimpIA al iniciar el ordenador (oculta en la bandeja), para que suba las fichas nuevas y traiga
+                los resultados de las tareas sin tener que abrirla</span>
+            </label>
+            <div class="settings-actions">
+              <button type="submit" class="btn-primary" id="settings-save">Guardar</button>
+              <span class="settings-result" id="settings-result"></span>
+            </div>
+          </form>
         </section>
       </div>
     </main>

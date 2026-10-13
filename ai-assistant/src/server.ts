@@ -5,8 +5,8 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { config } from "./config.js";
-import { runChatTurn, executeConfirmedAction, cancelPendingAction } from "./chatEngine.js";
+import { config, missingSettings, saveSettings, EDITABLE_SETTINGS, type EditableSetting } from "./config.js";
+import { runChatTurn, executeConfirmedAction, cancelPendingAction, getOpenAI } from "./chatEngine.js";
 import {
   listConversations,
   loadConversation,
@@ -19,8 +19,11 @@ import {
 } from "./conversationStore.js";
 import { getDashboardStats } from "./stats.js";
 import { ingestFile } from "./fileIngestion.js";
-import { startScheduler } from "./scheduler.js";
+import { startCloudSync, syncNow, runTaskNow, runningTaskIds, fichasStatus, cloudSyncStatus } from "./cloud/sync.js";
 import { supabase } from "./supabaseClient.js";
+import { loadTasks, removeTask, describeSchedule } from "./scheduledTasks.js";
+import { rememberUpload } from "./uploads.js";
+import { ensureFilesDir, listFilesRecursive } from "./tools/localFiles.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, "..", "public");
@@ -71,7 +74,164 @@ function serializeHistory(messages: ChatCompletionMessageParam[]) {
   return out;
 }
 
+// Mientras falten las claves, la interfaz muestra la pantalla de Ajustes en vez del chat.
+app.get("/api/status", (_req, res) => {
+  res.json({ missingSettings: missingSettings(), model: config.openaiModel, localFilesDir: config.localFilesDir });
+});
+
+function maskSecret(value: string | undefined): string | null {
+  if (!value) return null;
+  return value.length > 10 ? `${value.slice(0, 5)}…${value.slice(-4)}` : "••••";
+}
+
+app.get("/api/settings", (_req, res) => {
+  res.json({
+    openaiApiKey: maskSecret(config.openaiApiKey),
+    openaiModel: config.openaiModel,
+    supabaseUrl: config.supabaseUrl,
+    supabaseServiceRoleKey: maskSecret(config.supabaseServiceRoleKey),
+    localFilesDir: config.localFilesDir,
+    requireConfirmation: config.requireConfirmation,
+  });
+});
+
+// Guarda los ajustes y comprueba al momento que las claves funcionan. Las claves secretas que
+// lleguen vacías se dejan como estaban (el formulario nunca recibe la clave real, solo una máscara).
+app.post("/api/settings", async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const fields: Record<string, EditableSetting> = {
+    openaiApiKey: "OPENAI_API_KEY",
+    openaiModel: "OPENAI_MODEL",
+    supabaseUrl: "SUPABASE_URL",
+    supabaseServiceRoleKey: "SUPABASE_SERVICE_ROLE_KEY",
+    localFilesDir: "LOCAL_FILES_DIR",
+    requireConfirmation: "REQUIRE_CONFIRMATION",
+  };
+  const updates: Partial<Record<EditableSetting, string>> = {};
+  for (const [field, envName] of Object.entries(fields)) {
+    const value = typeof body[field] === "boolean" ? String(body[field]) : body[field];
+    if (typeof value !== "string" || !EDITABLE_SETTINGS.includes(envName)) continue;
+    const isSecret = envName === "OPENAI_API_KEY" || envName === "SUPABASE_SERVICE_ROLE_KEY";
+    if (isSecret && !value.trim()) continue;
+    updates[envName] = value;
+  }
+
+  try {
+    await saveSettings(updates);
+  } catch (err) {
+    res.status(500).json({ error: `No se pudo guardar la configuración: ${err instanceof Error ? err.message : err}` });
+    return;
+  }
+
+  const checks: Record<string, string> = {};
+  try {
+    const { error, status } = await supabase.from("profiles").select("id", { count: "exact", head: true }).limit(1);
+    const reason = status === 401 || status === 403 ? "la clave no es válida" : error?.message || `respuesta HTTP ${status}`;
+    checks.supabase = error ? `Error: ${reason}` : "ok";
+  } catch (err) {
+    checks.supabase = `Error: ${err instanceof Error ? err.message : err}`;
+  }
+  try {
+    await getOpenAI().models.retrieve(config.openaiModel);
+    checks.openai = "ok";
+  } catch (err) {
+    checks.openai = `Error: ${err instanceof Error ? err.message : err}`;
+  }
+  try {
+    await ensureFilesDir();
+    checks.folder = "ok";
+  } catch (err) {
+    checks.folder = `Error: ${err instanceof Error ? err.message : err}`;
+  }
+
+  // La nube usa la misma clave y modelo de OpenAI: se suben al momento.
+  if (checks.supabase === "ok") void syncNow();
+
+  res.json({ ok: Object.values(checks).every((c) => c === "ok"), checks, missingSettings: missingSettings() });
+});
+
+// Contenido de la carpeta compartida (fichas...), para la pantalla de Tareas.
+app.get("/api/files", async (_req, res) => {
+  try {
+    await ensureFilesDir();
+    res.json({ root: config.localFilesDir, files: await listFilesRecursive(config.localFilesDir, 2) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "No se pudo leer la carpeta." });
+  }
+});
+
+// Las tareas viven en Supabase y las ejecuta la nube; aquí solo se listan, se lanzan y se borran.
+app.get("/api/tasks", async (_req, res) => {
+  if (missingSettings().length > 0) {
+    res.status(503).json({ error: "Completa primero la configuración en Ajustes." });
+    return;
+  }
+  try {
+    const [tasks, running] = await Promise.all([loadTasks(), runningTaskIds()]);
+    res.json(
+      tasks.map((t) => ({
+        id: t.id,
+        description: t.description,
+        schedule: describeSchedule(t),
+        clientFilesFolder: t.clientFilesFolder ?? null,
+        clients: t.clients ?? null,
+        requireConfirmation: t.requireConfirmation ?? config.requireConfirmation,
+        lastRunDate: t.lastRunDate ?? null,
+        lastRunSummary: t.lastRunSummary ?? null,
+        running: running.has(t.id),
+      })),
+    );
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "No se pudieron cargar las tareas." });
+  }
+});
+
+// Estado de las fichas en la nube (subida, socio encontrado o no...) para la pantalla de Tareas.
+app.get("/api/fichas", async (req, res) => {
+  if (missingSettings().length > 0) {
+    res.status(503).json({ error: "Completa primero la configuración en Ajustes." });
+    return;
+  }
+  try {
+    if (req.query.sync === "1") await syncNow();
+    res.json({ fichas: await fichasStatus(), sync: cloudSyncStatus() });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "No se pudo leer el estado de las fichas." });
+  }
+});
+
+app.post("/api/tasks/:id/run", async (req, res) => {
+  if (missingSettings().length > 0) {
+    res.status(400).json({ error: "Completa primero la configuración en Ajustes." });
+    return;
+  }
+  let ok: boolean;
+  try {
+    ok = await runTaskNow(req.params.id);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "No se pudo lanzar la tarea." });
+    return;
+  }
+  if (!ok) {
+    res.status(404).json({ error: "Esa tarea ya no existe." });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.delete("/api/tasks/:id", async (req, res) => {
+  try {
+    res.json({ ok: await removeTask(req.params.id) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "No se pudo eliminar la tarea." });
+  }
+});
+
 app.get("/api/stats", async (_req, res) => {
+  if (missingSettings().length > 0) {
+    res.status(503).json({ error: "Falta configuración.", missingSettings: missingSettings() });
+    return;
+  }
   try {
     const stats = await getDashboardStats();
     res.json({ ...stats, model: config.openaiModel });
@@ -93,7 +253,11 @@ app.get("/api/members", async (req, res) => {
     .order("first_name", { ascending: true });
 
   if (search) {
-    const words = search.split(/\s+/).filter(Boolean);
+    // Fuera los caracteres con significado especial en el filtro de PostgREST (, . ( ) %).
+    const words = search
+      .replace(/[,.()%*\\]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean);
     for (const word of words) {
       query = query.or(`first_name.ilike.%${word}%,last_name.ilike.%${word}%,email.ilike.%${word}%`);
     }
@@ -165,6 +329,10 @@ app.post("/api/chat", upload.single("file"), async (req, res) => {
     res.status(400).json({ error: "Falta el mensaje o un archivo adjunto." });
     return;
   }
+  if (missingSettings().length > 0) {
+    res.status(400).json({ error: "Falta configurar las claves de OpenAI y Supabase: ve a Ajustes." });
+    return;
+  }
 
   const conv = await loadConversation(activeConversationId);
   if (!conv) {
@@ -173,7 +341,10 @@ app.post("/api/chat", upload.single("file"), async (req, res) => {
   }
 
   try {
+    // multer decodifica el nombre del archivo como latin1: se recupera en UTF-8 (tildes, ñ).
+    if (req.file) req.file.originalname = Buffer.from(req.file.originalname, "latin1").toString("utf8");
     const attachment = req.file ? await ingestFile(req.file) : null;
+    if (req.file) await rememberUpload(req.file.originalname, req.file.buffer);
     const result = await runChatTurn(conv.messages, userInput, attachment);
     conv.messages = result.messages;
     if (conv.title === "Nueva conversación" && userInput) {
@@ -238,7 +409,10 @@ app.post("/api/confirm", async (req, res) => {
 });
 
 await pickInitialConversation();
-app.listen(config.port, () => {
-  console.log(`🏋️  GymBot AI escuchando en http://localhost:${config.port}`);
-  startScheduler();
+app.listen(config.port, config.host, () => {
+  console.log(`🏋️  OlimpIA escuchando en http://localhost:${config.port}`);
+  if (missingSettings().length > 0) {
+    console.log(`⚙️  Falta configuración (${missingSettings().join(", ")}): ábrela en Ajustes.`);
+  }
+  startCloudSync();
 });
