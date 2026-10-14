@@ -41,6 +41,26 @@ import GestionAnuncios from './anuncios';
 // Pantalla de carga inicial
 import { SplashScreen } from "./components/splash-screen";
 
+// Límite de espera de la comprobación de sesión/rol y cada cuánto se reintenta si falla.
+const AUTH_TIMEOUT_MS = 10000;
+const AUTH_RETRY_MS = 8000;
+
+function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Sin respuesta en ${ms / 1000}s`)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
 // El splash se monta como overlay independiente por encima de <AppShell />, así que
 // no toca ninguna de sus rutas/estados (login, invitación, recuperar contraseña,
 // kiosko TV...) y se retira solo con un temporizador — ver components/splash-screen.tsx.
@@ -95,31 +115,75 @@ function AppShell() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(!isDirectInvite && !linkExpired && !isPrivacyRoute && !isAppDownloadRoute && !isTvRoute);
   const [isClientPortal, setIsClientPortal] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
+  // Si Supabase no responde, en vez de dejar el cargador girando para siempre se muestra un
+  // aviso y se reintenta solo (authAttempt vuelve a lanzar la comprobación).
+  const [authError, setAuthError] = useState(false);
+  const [authAttempt, setAuthAttempt] = useState(0);
 
   useEffect(() => {
     // ⚠️ ATENCIÓN AQUÍ: Añadimos isTvRoute al bypass de comprobaciones
     if (isDirectInvite || linkExpired || isPrivacyRoute || isAppDownloadRoute || isTvRoute) return;
 
+    let cancelled = false;
+    let checkSeq = 0;
+    let grantedUserId: string | null = null;
+
     const checkStaffRole = async (currentSession: any) => {
+      const seq = ++checkSeq;
+      const isLatest = () => !cancelled && seq === checkSeq;
+
       if (!currentSession) {
+        grantedUserId = null;
         setSession(null);
         setHasAccess(false);
+        setIsClientPortal(false);
+        setAuthError(false);
         setIsCheckingAuth(false);
         return;
       }
 
-      // Comprobamos quién es en la BD
-      const { data } = await supabase
+      // Comprobamos quién es en la BD (con límite de tiempo: si la BD va lenta no nos quedamos colgados)
+      const { data, error, status } = await supabase
         .from('profiles')
         .select('role')
         .eq('id', currentSession.user.id)
+        .abortSignal(timeoutSignal(AUTH_TIMEOUT_MS))
         .single();
 
+      if (!isLatest()) return;
+
+      // Sesión guardada que ya no vale (token caducado/revocado): al login.
+      if (error && (status === 401 || status === 403)) {
+        await supabase.auth.signOut({ scope: 'local' });
+        if (!isLatest()) return;
+        grantedUserId = null;
+        setSession(null);
+        setHasAccess(false);
+        setIsClientPortal(false);
+        setAuthError(false);
+        setIsCheckingAuth(false);
+        return;
+      }
+
+      // Fallo de red, tiempo agotado o error del servidor: no se manda al staff a la pantalla de
+      // clientes por eso; se avisa y se reintenta. (PGRST116 = no existe el perfil → cliente, como antes.)
+      if (error && error.code !== 'PGRST116' && (status === 0 || status >= 500 || status === 408)) {
+        console.error('[Auth] No se pudo comprobar el rol:', error.message);
+        // Si ya estaba dentro (p. ej. al refrescar el token) no le echamos del panel.
+        if (grantedUserId === currentSession.user.id) return;
+        setAuthError(true);
+        setIsCheckingAuth(false);
+        return;
+      }
+
+      setAuthError(false);
       if (data?.role === 'admin' || data?.role === 'trainer') {
+        grantedUserId = currentSession.user.id;
         setSession(currentSession);
         setHasAccess(true);
         setIsClientPortal(false);
       } else {
+        grantedUserId = null;
         setSession(currentSession);
         setHasAccess(false);
         setIsClientPortal(true); 
@@ -127,17 +191,38 @@ function AppShell() {
       setIsCheckingAuth(false);
     };
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      checkStaffRole(session);
-    });
+    withTimeout(supabase.auth.getSession(), AUTH_TIMEOUT_MS)
+      .then(({ data: { session } }) => checkStaffRole(session))
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[Auth] No se pudo recuperar la sesión:', err);
+        setAuthError(true);
+        setIsCheckingAuth(false);
+      });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (event === 'PASSWORD_RECOVERY') setIsRecovery(true);
-      checkStaffRole(newSession);
+      // Fuera del callback: llamar a Supabase dentro de él puede bloquear el cliente de auth.
+      setTimeout(() => { if (!cancelled) checkStaffRole(newSession); }, 0);
     });
 
-    return () => subscription.unsubscribe();
-  }, [isDirectInvite, linkExpired, isPrivacyRoute, isAppDownloadRoute, isTvRoute]); // ⚠️ Añadido a dependencias
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [isDirectInvite, linkExpired, isPrivacyRoute, isAppDownloadRoute, isTvRoute, authAttempt]); // ⚠️ Añadido a dependencias
+
+  // Mientras no hay conexión, se reintenta solo cada pocos segundos.
+  useEffect(() => {
+    if (!authError) return;
+    const retry = setTimeout(() => setAuthAttempt((n) => n + 1), AUTH_RETRY_MS);
+    return () => clearTimeout(retry);
+  }, [authError, authAttempt]);
+
+  const retryAuth = () => {
+    setIsCheckingAuth(true);
+    setAuthAttempt((n) => n + 1);
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -215,6 +300,25 @@ function AppShell() {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-[#E31C25] animate-spin" />
+      </div>
+    );
+  }
+
+  // 4.5. SIN CONEXIÓN CON EL SERVIDOR (se reintenta solo)
+  if (authError && !hasAccess) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-4">
+        <div className="bg-[#1a1a1a] border border-[#2a2a2a] p-8 rounded-2xl max-w-md w-full text-center">
+          <Loader2 className="w-8 h-8 text-[#E31C25] animate-spin mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">No se puede conectar con el servidor</h2>
+          <p className="text-gray-400 mb-6">Lo estamos reintentando automáticamente. Si tarda, revisa tu conexión a internet.</p>
+          <button
+            onClick={retryAuth}
+            className="px-5 py-2.5 bg-[#E31C25] hover:bg-[#c4161e] text-white font-semibold rounded-xl transition-colors"
+          >
+            Reintentar ahora
+          </button>
+        </div>
       </div>
     );
   }
