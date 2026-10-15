@@ -1,0 +1,55 @@
+# Reinicio semanal del proyecto de Supabase, el domingo a las 4:00 (hora de Madrid), con el gimnasio
+# cerrado. La instancia del plan Free (0,5 GB de RAM) va acumulando swap con los días; reiniciarla la
+# deja limpia. No se pierde ningún dato: solo hay 1-2 minutos sin servicio.
+#
+# GitHub programa en UTC, así que hay dos horarios (cubren el horario de verano y el de invierno) y
+# solo sigue el que cae a las 4 en Madrid. Lanzado a mano reinicia siempre.
+#
+# Necesita el secreto SUPABASE_ACCESS_TOKEN (token personal de supabase.com/dashboard/account/tokens).
+name: Reinicio semanal de Supabase
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+env:
+  PROJECT_REF: vnockjqtkbhgytmmbdlb
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Comprobar la hora en Madrid
+        id: hour
+        run: |
+          hour=$(TZ=Europe/Madrid date +%H)
+          echo "Hora en Madrid: $hour"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$hour" = "04" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reiniciar el proyecto
+        if: steps.hour.outputs.go == 'true'
+        run: |
+          curl -fsS -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/restart" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" --max-time 60
+
+      - name: Esperar a que vuelva
+        if: steps.hour.outputs.go == 'true'
+        run: |
+          sleep 60
+          for i in $(seq 1 40); do
+            health=$(curl -sS "https://api.supabase.com/v1/projects/$PROJECT_REF/health?services=db,auth,rest" \
+              -H "Authorization: Bearer ${{ secrets.SUPABASE_ACCESS_TOKEN }}" --max-time 30 || true)
+            echo "$health"
+            if echo "$health" | jq -e 'type == "array" and length > 0 and all(.healthy)' > /dev/null 2>&1; then
+              echo "Supabase ha vuelto correctamente."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Supabase no ha vuelto en 10 minutos: revisar el panel."
+          exit 1
