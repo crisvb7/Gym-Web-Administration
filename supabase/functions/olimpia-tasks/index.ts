@@ -1,6 +1,6 @@
-// Tareas automáticas de OlimpIA en la nube. GitHub Actions llama a esta función cada 10 minutos
-// (.github/workflows/olimpia-tick.yml) con el secreto x-olimpia-secret. Responde al momento y hace
-// el trabajo en segundo plano.
+// Tareas automáticas de OlimpIA en la nube. Ahora mismo no la llama nada: el aviso periódico desde
+// GitHub Actions se quitó el 16/10/2026 mientras se replantea OlimpIA. Se llama con el secreto
+// x-olimpia-secret; responde al momento y hace el trabajo en segundo plano.
 //
 // La lógica está en ai-assistant/src/cloud/worker.ts; worker.bundle.js se genera con
 // `npm run build:cloud` desde ai-assistant/. Despliegue:
