@@ -8,7 +8,9 @@ do $$
 begin
   if exists (
     select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    -- extensions.grant_pg_net_access es de Supabase (da permisos al instalar pg_net), no un uso real.
     where n.nspname not in ('net', 'pg_catalog', 'information_schema')
+      and (n.nspname, p.proname) <> ('extensions', 'grant_pg_net_access')
       and p.prosrc ilike '%net.http_%'
   ) or exists (
     select 1 from cron.job where jobname <> 'olimpia-tasks-tick' and command ilike '%net.http_%'
