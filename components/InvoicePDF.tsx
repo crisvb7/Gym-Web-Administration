@@ -1,53 +1,136 @@
 import React from 'react';
-import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image, Font, Svg, Defs, RadialGradient, Stop, Rect, Polygon } from '@react-pdf/renderer';
 import { ISSUER, VAT_RATE, formatMonths, invoiceReference } from '../src/lib/billing';
 
-const INK = '#18181b';
-const MUTED = '#71717a';
-const RULE = '#e4e4e7';
-const BOLD = 'Helvetica-Bold';
+// Registra las fuentes desde cero. Reutilizar una fuente ya usada en otro PDF corrompe letras (tras
+// varias facturas, "Ana Ruiz" salía como "na Ruiz"), así que hay que llamarla antes de cada factura.
+export function registerInvoiceFonts() {
+  // Solo estas dos familias: la librería necesita conservar las suyas, como Helvetica.
+  const registered = Font.getRegisteredFonts();
+  delete registered.Sans;
+  delete registered.Mono;
+  Font.register({
+    family: 'Sans',
+    fonts: [
+      { src: '/fonts/DejaVuSans.ttf', fontWeight: 400 },
+      { src: '/fonts/DejaVuSans-Bold.ttf', fontWeight: 700 },
+    ],
+  });
+  Font.register({
+    family: 'Mono',
+    fonts: [
+      { src: '/fonts/DejaVuSansMono.ttf', fontWeight: 400 },
+      { src: '/fonts/DejaVuSansMono-Bold.ttf', fontWeight: 700 },
+    ],
+  });
+}
+registerInvoiceFonts();
+// Sin guiones de partición: nombres y números de factura no se cortan.
+Font.registerHyphenationCallback((word) => [word]);
+
+const PAGE_WIDTH = 595.28;
+const PAGE_HEIGHT = 841.89;
+const MARGIN = 48;
+
+const BG = '#0F0F12';
+const CARD = '#1A1A1F';
+const BORDER = '#3A3A41';
+const RULE = '#2E2E34';
+const WHITE = '#FFFFFF';
+const TEXT = '#D4D4D8';
+const MUTED = '#9A9AA3';
+const RED = '#F0083C';
 
 const styles = StyleSheet.create({
-  page: { paddingTop: 48, paddingBottom: 72, paddingHorizontal: 52, fontFamily: 'Helvetica', fontSize: 10, color: INK, lineHeight: 1.4 },
+  page: { backgroundColor: BG, paddingTop: 44, paddingBottom: 92, paddingHorizontal: MARGIN, fontFamily: 'Sans', fontSize: 8, color: TEXT, lineHeight: 1.35 },
 
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 36 },
-  logo: { width: 52, height: 62, objectFit: 'contain' },
-  headerRight: { alignItems: 'flex-end' },
-  title: { fontFamily: BOLD, fontSize: 20, letterSpacing: -0.3, lineHeight: 1.2, marginBottom: 12 },
-  reference: { fontSize: 11, color: MUTED, lineHeight: 1.2 },
+  glow: { position: 'absolute', top: 0, left: 0 },
+  watermark: { position: 'absolute', left: 300, top: 318, width: 305, height: 390 },
 
-  parties: { flexDirection: 'row', borderTop: `1 solid ${INK}`, paddingTop: 14, marginBottom: 28 },
-  party: { flex: 1, paddingRight: 16 },
-  label: { fontFamily: BOLD, fontSize: 7.5, color: MUTED, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 5 },
-  strong: { fontFamily: BOLD },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
-  metaKey: { color: MUTED },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 26, borderBottom: `0.75 solid ${RULE}`, marginBottom: 28 },
+  brand: { flexDirection: 'row', alignItems: 'center' },
+  plate: { width: 45, height: 56, marginRight: 14 },
+  plateLogo: { position: 'absolute', left: 4, top: 5, width: 37, height: 46, objectFit: 'contain' },
+  brandName: { fontWeight: 700, fontSize: 13, color: WHITE, lineHeight: 1.2 },
+  brandTag: { fontFamily: 'Mono', fontSize: 6.5, color: MUTED, letterSpacing: 1, marginTop: 4 },
+  docRight: { alignItems: 'flex-end' },
+  docType: { fontFamily: 'Mono', fontWeight: 700, fontSize: 6.5, color: RED, letterSpacing: 1.3 },
+  docNumber: { fontFamily: 'Mono', fontWeight: 700, fontSize: 22, color: WHITE, lineHeight: 1.2, marginTop: 6 },
+  docDate: { fontFamily: 'Mono', fontSize: 7, color: MUTED, letterSpacing: 1, marginTop: 4 },
 
-  detail: { marginBottom: 24 },
+  cards: { flexDirection: 'row', marginBottom: 14 },
+  card: { backgroundColor: CARD, border: `0.75 solid ${BORDER}`, paddingHorizontal: 14, paddingTop: 15, paddingBottom: 14, minHeight: 86 },
+  cardAccent: { position: 'absolute', top: -0.75, left: -0.75, width: 22, height: 2, backgroundColor: RED },
+  cardLabel: { fontFamily: 'Mono', fontWeight: 700, fontSize: 6.5, color: RED, letterSpacing: 1.2, marginBottom: 8 },
+  cardName: { fontWeight: 700, fontSize: 11, color: WHITE, lineHeight: 1.2, marginBottom: 4 },
+  cardText: { fontSize: 7.5, color: MUTED, lineHeight: 1.5 },
+  dataRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 9 },
+  dataValue: { fontWeight: 700, fontSize: 7.5, color: WHITE },
+  badge: { alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 7 },
+  badgeText: { fontFamily: 'Mono', fontWeight: 700, fontSize: 6.5, color: WHITE, letterSpacing: 1 },
 
-  tableHead: { flexDirection: 'row', borderBottom: `1 solid ${INK}`, paddingBottom: 6 },
-  tableRow: { flexDirection: 'row', borderBottom: `0.5 solid ${RULE}`, paddingVertical: 9 },
+  band: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: CARD, border: `0.75 solid ${BORDER}`, paddingHorizontal: 14, paddingVertical: 13, marginBottom: 26 },
+  bandAccent: { position: 'absolute', bottom: -0.75, left: -0.75, width: 98, height: 2.5, backgroundColor: RED },
+  bandMain: { flex: 1, paddingRight: 16 },
+  bandTitle: { fontWeight: 700, fontSize: 11, color: WHITE, lineHeight: 1.3 },
+  bandSide: { fontFamily: 'Mono', fontSize: 6.5, color: MUTED, letterSpacing: 1 },
+
+  sectionLabel: { fontFamily: 'Mono', fontWeight: 700, fontSize: 6.5, color: MUTED, letterSpacing: 1.2, marginBottom: 7 },
+  tableHead: { flexDirection: 'row', paddingHorizontal: 6, paddingBottom: 7, borderBottom: `0.75 solid ${BORDER}` },
+  headCell: { fontFamily: 'Mono', fontSize: 6.5, color: MUTED, letterSpacing: 1 },
+  tableRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, paddingVertical: 12, borderBottom: `0.75 solid ${RULE}` },
   colDesc: { flex: 1, paddingRight: 12 },
-  colNum: { width: 76, textAlign: 'right' },
-  colQty: { width: 44, textAlign: 'right' },
+  colQty: { width: 38, textAlign: 'right' },
+  colNum: { width: 78, textAlign: 'right' },
+  lineTitle: { fontWeight: 700, fontSize: 9, color: WHITE },
+  lineNote: { fontFamily: 'Mono', fontSize: 6.5, color: MUTED, marginTop: 3 },
+  cell: { fontSize: 8.5, color: TEXT },
+  cellStrong: { fontWeight: 700, fontSize: 8.5, color: WHITE },
 
-  totals: { alignSelf: 'flex-end', width: 210, marginTop: 16 },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
-  grandTotal: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: `1 solid ${INK}`, marginTop: 6, paddingTop: 10, marginBottom: 10 },
-  grandLabel: { fontFamily: BOLD, fontSize: 10 },
-  grandAmount: { fontFamily: BOLD, fontSize: 16, lineHeight: 1.2 },
-  vatNote: { textAlign: 'right', fontSize: 8, color: MUTED },
+  closing: { flexDirection: 'row', alignItems: 'stretch', marginTop: 26 },
+  notes: { flex: 1, borderLeft: `2 solid ${RED}`, paddingLeft: 12, paddingTop: 12, marginRight: 34 },
+  notesTitle: { fontFamily: 'Mono', fontWeight: 700, fontSize: 7, color: MUTED, letterSpacing: 1.2, marginBottom: 3 },
+  notesText: { fontSize: 7.5, color: MUTED, lineHeight: 1.5 },
+  totals: { width: 190, backgroundColor: CARD, border: `0.75 solid ${BORDER}`, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 11 },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  totalKey: { fontSize: 7.5, color: MUTED },
+  totalValue: { fontWeight: 700, fontSize: 7.5, color: WHITE },
+  grandRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: `0.75 solid ${BORDER}`, marginTop: 6, paddingTop: 11 },
+  grandKey: { fontFamily: 'Mono', fontWeight: 700, fontSize: 7, color: WHITE, letterSpacing: 1.2 },
+  grandValue: { fontFamily: 'Mono', fontWeight: 700, fontSize: 18, color: RED, lineHeight: 1.2 },
+  vatNote: { fontFamily: 'Mono', fontSize: 6, color: MUTED, textAlign: 'right', marginTop: 2 },
 
-  footer: { position: 'absolute', bottom: 32, left: 52, right: 52, borderTop: `0.5 solid ${RULE}`, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', fontSize: 8, color: MUTED },
+  footer: { position: 'absolute', bottom: 28, left: MARGIN, right: MARGIN, borderTop: `0.75 solid ${RULE}`, paddingTop: 13, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+  footerName: { fontWeight: 700, fontSize: 7.5, color: WHITE },
+  footerText: { fontSize: 6.5, color: MUTED, marginTop: 4 },
+  footerTag: { fontFamily: 'Mono', fontWeight: 700, fontSize: 6.5, color: RED, letterSpacing: 1.3 },
 });
 
 const euros = (value: number) =>
-  `${Number(value).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  // En español el navegador no separa los miles con 4 cifras (4680,00), pero sí con 5 (11.950,50).
+  `${Number(value).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' as any })} €`;
 
-const STATUS_LABEL: Record<string, string> = { pagada: 'Pagada', anulada: 'Anulada' };
+// "Noviembre 2026 y Febrero 2027" → "Noviembre 2026 y febrero 2027"
+const sentenceCase = (text: string) => text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+
+const notesFor = (isRectification: boolean, reason: string | undefined, monthCount: number) => {
+  if (isRectification) return `Motivo de la rectificación: ${reason || 'no indicado'}.`;
+  const issuedBy = `Documento emitido por ${ISSUER.tradeName}.`;
+  if (monthCount === 0) return issuedBy;
+  return `Factura correspondiente a ${monthCount === 1 ? 'una mensualidad' : `${monthCount} mensualidades`}. ${issuedBy}`;
+};
+
+const Card = ({ label, style, children }: { label: string; style: any; children: React.ReactNode }) => (
+  <View style={[styles.card, style]}>
+    <View style={styles.cardAccent} />
+    <Text style={styles.cardLabel}>{label}</Text>
+    {children}
+  </View>
+);
 
 export const InvoicePDF = ({ invoice }: { invoice: any }) => {
   const isRectification = invoice.status === 'rectificativa';
+  const isVoid = invoice.status === 'anulada';
   const issued = invoice.issue_date ? new Date(`${invoice.issue_date}T12:00:00`) : new Date(invoice.payment_date || Date.now());
   const issuedLabel = issued.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const lines: any[] = invoice.lines?.length
@@ -58,94 +141,135 @@ export const InvoicePDF = ({ invoice }: { invoice: any }) => {
   const base = invoice.base_amount != null ? Number(invoice.base_amount) : Math.round((total / (1 + vatRate / 100)) * 100) / 100;
   const vat = invoice.vat_amount != null ? Number(invoice.vat_amount) : total - base;
   const months: string[] = invoice.period_months ?? [];
+  const badge = isRectification ? 'RECTIFICATIVA' : isVoid ? 'ANULADA' : invoice.status === 'pagada' ? 'PAGADA' : null;
 
   return (
     <Document title={`${isRectification ? 'Factura rectificativa' : 'Factura'} ${invoiceReference(invoice)}`} author={ISSUER.name}>
       <Page size="A4" style={styles.page}>
 
+        {/* Fondo: se repite en todas las páginas si la factura ocupa más de una. */}
+        <View style={styles.glow} fixed>
+          <Svg width={PAGE_WIDTH} height={PAGE_HEIGHT}>
+            <Defs>
+              <RadialGradient id="glow" cx={PAGE_WIDTH} cy={PAGE_HEIGHT} r={460} gradientUnits="userSpaceOnUse">
+                <Stop offset="0" stopColor={RED} stopOpacity={0.13} />
+                <Stop offset="1" stopColor={RED} stopOpacity={0} />
+              </RadialGradient>
+            </Defs>
+            <Rect x={0} y={0} width={PAGE_WIDTH} height={PAGE_HEIGHT} fill="url(#glow)" />
+          </Svg>
+        </View>
+        <Image src="/logo-invoice-mark.png" style={styles.watermark} fixed />
+
         <View style={styles.header}>
-          <Image src="/logo-invoice.png" style={styles.logo} />
-          <View style={styles.headerRight}>
-            <Text style={styles.title}>{isRectification ? 'Factura rectificativa' : 'Factura simplificada'}</Text>
-            <Text style={styles.reference}>Nº {invoiceReference(invoice)}</Text>
+          <View style={styles.brand}>
+            {/* El logo lleva partes oscuras: sobre la placa blanca se lee completo. */}
+            <View style={styles.plate}>
+              <Svg width={45} height={56}>
+                <Polygon points="0,0 45,0 45,47 36,56 0,56" fill={WHITE} />
+              </Svg>
+              <Image src="/logo-invoice.png" style={styles.plateLogo} />
+            </View>
+            <View>
+              <Text style={styles.brandName}>{ISSUER.tradeName}</Text>
+              <Text style={styles.brandTag}>TRAINING SYSTEMS / {ISSUER.city.toUpperCase()}</Text>
+            </View>
+          </View>
+          <View style={styles.docRight}>
+            <Text style={styles.docType}>{isRectification ? 'FACTURA RECTIFICATIVA' : 'FACTURA SIMPLIFICADA'}</Text>
+            <Text style={styles.docNumber}>{invoiceReference(invoice)}</Text>
+            <Text style={styles.docDate}>{issuedLabel.replace(/\//g, ' / ')}</Text>
           </View>
         </View>
 
-        <View style={styles.parties}>
-          <View style={styles.party}>
-            <Text style={styles.label}>Emisor</Text>
-            <Text style={styles.strong}>{ISSUER.name}</Text>
-            <Text>{ISSUER.tradeName}</Text>
-            <Text>NIF {ISSUER.nif}</Text>
-            <Text>{ISSUER.city}</Text>
-          </View>
-          <View style={styles.party}>
-            <Text style={styles.label}>Cliente</Text>
-            <Text style={styles.strong}>{invoice.client_name || '-'}</Text>
-          </View>
-          <View style={{ width: 150 }}>
-            <Text style={styles.label}>Datos</Text>
-            <View style={styles.metaRow}>
-              <Text style={styles.metaKey}>Fecha</Text>
-              <Text>{issuedLabel}</Text>
+        <View style={styles.cards}>
+          <Card label="01 / EMISOR" style={{ flex: 1.1, marginRight: 9 }}>
+            <Text style={styles.cardName}>{ISSUER.name}</Text>
+            <Text style={styles.cardText}>{ISSUER.tradeName}</Text>
+            <Text style={styles.cardText}>NIF {ISSUER.nif} · {ISSUER.city}</Text>
+          </Card>
+          <Card label="02 / CLIENTE" style={{ flex: 1, marginRight: 9 }}>
+            <Text style={styles.cardName}>{invoice.client_name || '-'}</Text>
+          </Card>
+          <Card label="03 / DATOS" style={{ width: 133 }}>
+            <View style={styles.dataRow}>
+              <Text style={styles.cardText}>Fecha</Text>
+              <Text style={styles.dataValue}>{issuedLabel}</Text>
             </View>
-            {STATUS_LABEL[invoice.status] && (
-              <View style={styles.metaRow}>
-                <Text style={styles.metaKey}>Estado</Text>
-                <Text>{STATUS_LABEL[invoice.status]}</Text>
+            {badge && (
+              <View style={[styles.badge, { backgroundColor: isVoid ? '#52525B' : RED }]}>
+                <Text style={styles.badgeText}>{badge}</Text>
               </View>
             )}
-          </View>
+          </Card>
         </View>
 
         {isRectification ? (
-          <View style={styles.detail}>
-            <Text style={styles.label}>Rectifica a la factura</Text>
-            <Text style={styles.strong}>{invoice.rectified_number}</Text>
-            <Text style={[styles.label, { marginTop: 10 }]}>Motivo</Text>
-            <Text>{invoice.rectification_reason}</Text>
+          <View style={styles.band} wrap={false}>
+            <View style={styles.bandMain}>
+              <Text style={styles.cardLabel}>RECTIFICA A LA FACTURA</Text>
+              <Text style={styles.bandTitle}>{invoice.rectified_number}</Text>
+            </View>
+            <View style={styles.bandAccent} />
           </View>
-        ) : months.length > 0 && (
-          <View style={styles.detail}>
-            <Text style={styles.label}>Periodo facturado</Text>
-            <Text>{formatMonths(months)}</Text>
+        ) : months.length > 0 ? (
+          <View style={styles.band} wrap={false}>
+            <View style={styles.bandMain}>
+              <Text style={styles.cardLabel}>PERIODO FACTURADO</Text>
+              <Text style={styles.bandTitle}>{sentenceCase(formatMonths(months))}</Text>
+            </View>
+            <Text style={styles.bandSide}>{months.length === 1 ? '1 MENSUALIDAD' : `${months.length} MENSUALIDADES`}</Text>
+            <View style={styles.bandAccent} />
           </View>
-        )}
+        ) : null}
 
-        <View style={styles.tableHead}>
-          <Text style={[styles.label, styles.colDesc, { marginBottom: 0 }]}>Concepto</Text>
-          <Text style={[styles.label, styles.colQty, { marginBottom: 0 }]}>Cant.</Text>
-          <Text style={[styles.label, styles.colNum, { marginBottom: 0 }]}>Precio</Text>
-          <Text style={[styles.label, styles.colNum, { marginBottom: 0 }]}>Importe</Text>
+        <Text style={styles.sectionLabel}>DETALLE / SERVICIOS</Text>
+        <View style={styles.tableHead} fixed>
+          <Text style={[styles.headCell, styles.colDesc]}>CONCEPTO</Text>
+          <Text style={[styles.headCell, styles.colQty]}>CANT.</Text>
+          <Text style={[styles.headCell, styles.colNum]}>PRECIO</Text>
+          <Text style={[styles.headCell, styles.colNum]}>IMPORTE</Text>
         </View>
         {lines.map((line: any, index: number) => (
           <View style={styles.tableRow} key={index} wrap={false}>
-            <Text style={styles.colDesc}>{line.desc}</Text>
-            <Text style={styles.colQty}>{line.quantity ?? 1}</Text>
-            <Text style={styles.colNum}>{euros(line.unit_amount ?? line.amount)}</Text>
-            <Text style={[styles.colNum, styles.strong]}>{euros(line.amount)}</Text>
+            <View style={styles.colDesc}>
+              <Text style={styles.lineTitle}>{line.desc}</Text>
+              {/^cuota/i.test(line.desc ?? '') && <Text style={styles.lineNote}>Servicios de entrenamiento</Text>}
+            </View>
+            <Text style={[styles.cell, styles.colQty]}>{line.quantity ?? 1}</Text>
+            <Text style={[styles.cell, styles.colNum]}>{euros(line.unit_amount ?? line.amount)}</Text>
+            <Text style={[styles.cellStrong, styles.colNum]}>{euros(line.amount)}</Text>
           </View>
         ))}
 
-        <View style={styles.totals} wrap={false}>
-          <View style={styles.totalRow}>
-            <Text style={styles.metaKey}>Base imponible</Text>
-            <Text>{euros(base)}</Text>
+        <View style={styles.closing} wrap={false}>
+          <View style={styles.notes}>
+            <Text style={styles.notesTitle}>OBSERVACIONES</Text>
+            <Text style={styles.notesText}>{notesFor(isRectification, invoice.rectification_reason, months.length)}</Text>
           </View>
-          <View style={styles.totalRow}>
-            <Text style={styles.metaKey}>IVA ({vatRate} %)</Text>
-            <Text>{euros(vat)}</Text>
+          <View style={styles.totals}>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalKey}>Base imponible</Text>
+              <Text style={styles.totalValue}>{euros(base)}</Text>
+            </View>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalKey}>IVA / {vatRate} %</Text>
+              <Text style={styles.totalValue}>{euros(vat)}</Text>
+            </View>
+            <View style={styles.grandRow}>
+              <Text style={styles.grandKey}>TOTAL</Text>
+              <Text style={styles.grandValue}>{euros(total)}</Text>
+            </View>
+            <Text style={styles.vatNote}>IVA incluido</Text>
           </View>
-          <View style={styles.grandTotal}>
-            <Text style={styles.grandLabel}>Total</Text>
-            <Text style={styles.grandAmount}>{euros(total)}</Text>
-          </View>
-          <Text style={styles.vatNote}>IVA incluido</Text>
         </View>
 
         <View style={styles.footer} fixed>
-          <Text>{ISSUER.name} · {ISSUER.tradeName}</Text>
-          <Text>{ISSUER.email}</Text>
+          <View>
+            <Text style={styles.footerName}>{ISSUER.name} · {ISSUER.tradeName}</Text>
+            <Text style={styles.footerText}>{ISSUER.email} · {ISSUER.city}</Text>
+          </View>
+          <Text style={styles.footerTag}>MOVE / TRAIN / EVOLVE</Text>
         </View>
 
       </Page>
