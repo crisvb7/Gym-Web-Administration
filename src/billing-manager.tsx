@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, Loader2, Recei
 import { supabase } from "./lib/supabase";
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDF } from '../components/InvoicePDF';
-import { SIMPLIFIED_INVOICE_LIMIT, VAT_RATE, buildLines, formatMonths, invoiceReference, invoiceTotals, monthKey } from './lib/billing';
+import { SIMPLIFIED_INVOICE_LIMIT, VAT_RATE, buildLines, formatMonth, formatMonths, invoiceReference, invoiceTotals, monthKey } from './lib/billing';
 
 export function BillingManager() {
   const [clients, setClients] = useState<any[]>([]);
@@ -24,7 +24,7 @@ export function BillingManager() {
   // Estados para el Modal Dinámico
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [clientToBill, setClientToBill] = useState<any>(null);
-  const [currentInvoiceItems, setCurrentInvoiceItems] = useState<{desc: string, amount: string, isFixed: boolean}[]>([]);
+  const [currentInvoiceItems, setCurrentInvoiceItems] = useState<{desc: string, amount: string, isFixed: boolean, excluded: string[]}[]>([]);
   
   const MONTHS_LIST = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   // Meses a cobrar, como 'YYYY-MM-01'
@@ -123,11 +123,25 @@ export function BillingManager() {
 
   // --- MODAL DE FACTURACIÓN DINÁMICA ---
   const toggleMonth = (month: string) => {
-    setSelectedMonths(prev => 
-      prev.includes(month) 
-        ? prev.filter(m => m !== month) 
-        : [...prev, month]
-    );
+    const adding = !selectedMonths.includes(month);
+    setSelectedMonths(adding ? [...selectedMonths, month] : selectedMonths.filter(m => m !== month));
+
+    // Un mes nuevo se aplica a las tarifas fijas, pero no a los extra ya añadidos (como una fianza).
+    if (adding) {
+      setCurrentInvoiceItems(currentInvoiceItems.map(item => ({
+        ...item,
+        excluded: item.isFixed || selectedMonths.length === 0
+          ? item.excluded.filter(m => m !== month)
+          : [...item.excluded, month],
+      })));
+    }
+  };
+
+  const toggleItemMonth = (index: number, month: string) => {
+    setCurrentInvoiceItems(currentInvoiceItems.map((item, i) => i !== index ? item : {
+      ...item,
+      excluded: item.excluded.includes(month) ? item.excluded.filter(m => m !== month) : [...item.excluded, month],
+    }));
   };
 
   const openBillingModal = async (client: any) => {
@@ -146,10 +160,10 @@ export function BillingManager() {
     setClientToBill(client);
 
     const initialItems = [];
-    initialItems.push({ desc: 'Cuota Mensual', amount: (client.fee || DEFAULT_FEE).toString(), isFixed: true });
+    initialItems.push({ desc: 'Cuota Mensual', amount: (client.fee || DEFAULT_FEE).toString(), isFixed: true, excluded: [] as string[] });
     
     if (client.nutrition_fee && client.nutrition_fee > 0) {
-      initialItems.push({ desc: 'Servicio de Nutrición', amount: client.nutrition_fee.toString(), isFixed: true });
+      initialItems.push({ desc: 'Servicio de Nutrición', amount: client.nutrition_fee.toString(), isFixed: true, excluded: [] as string[] });
     }
 
     setCurrentInvoiceItems(initialItems);
@@ -157,7 +171,9 @@ export function BillingManager() {
   };
 
   const addExtraItem = () => {
-    setCurrentInvoiceItems([...currentInvoiceItems, { desc: '', amount: '0', isFixed: false }]);
+    // Empieza en el primer mes cobrado; se pueden marcar más en la propia línea.
+    const others = [...selectedMonths].sort().slice(1);
+    setCurrentInvoiceItems([...currentInvoiceItems, { desc: '', amount: '0', isFixed: false, excluded: others }]);
   };
 
   const removeInvoiceItem = (index: number) => {
@@ -170,7 +186,8 @@ export function BillingManager() {
     setCurrentInvoiceItems(newItems);
   };
 
-  const draftLines = buildLines(currentInvoiceItems, selectedMonths, feeIsPerMonth);
+  const sortedMonths = [...selectedMonths].sort();
+  const draftLines = buildLines(currentInvoiceItems, sortedMonths, feeIsPerMonth);
   const { total: totalAmount, base: baseAmount, vat: ivaAmount } = invoiceTotals(draftLines);
   const overLimit = totalAmount > SIMPLIFIED_INVOICE_LIMIT;
 
@@ -201,6 +218,11 @@ export function BillingManager() {
       alert("Selecciona al menos un mes.");
       return;
     }
+    const extraWithoutMonth = currentInvoiceItems.find((item, i) => !item.isFixed && draftLines[i].quantity === 0);
+    if (extraWithoutMonth) {
+      alert(`Elige al menos un mes para el concepto "${extraWithoutMonth.desc.trim()}".`);
+      return;
+    }
     if (totalAmount <= 0) {
       alert("El total de la factura debe ser mayor que 0.");
       return;
@@ -211,8 +233,9 @@ export function BillingManager() {
     }
 
     setIsProcessingPdf(true);
-    const months = [...selectedMonths].sort();
-    const description = `${draftLines.map(l => l.desc).join(' + ')} (${formatMonths(months)})`;
+    const months = sortedMonths;
+    const invoiceLines = draftLines.filter(l => l.quantity > 0);
+    const description = `${invoiceLines.map(l => l.desc).join(' + ')} (${formatMonths(months)})`;
 
     const { data: newInvoice, error: insertError } = await supabase.from('invoices').insert([{
       user_id: clientToBill.id,
@@ -221,7 +244,7 @@ export function BillingManager() {
       status: 'pagada',
       due_date: months[0],
       period_months: months,
-      lines: draftLines,
+      lines: invoiceLines,
       payment_date: new Date().toISOString()
     }]).select().single();
 
@@ -323,7 +346,8 @@ export function BillingManager() {
               <p className="text-xs text-gray-400 uppercase font-bold tracking-widest mb-2">Conceptos de la factura</p>
               
               {currentInvoiceItems.map((item, index) => (
-                <div key={index} className="flex gap-2 items-center animate-in slide-in-from-top-2">
+                <div key={index} className="space-y-2 animate-in slide-in-from-top-2">
+                <div className="flex gap-2 items-center">
                   {item.isFixed ? (
                     <>
                       <div className="flex-1 bg-[#121212] border border-[#2a2a2a] rounded-xl p-3 flex items-center gap-2 cursor-not-allowed">
@@ -358,6 +382,37 @@ export function BillingManager() {
                       </button>
                     </>
                   )}
+                </div>
+                {selectedMonths.length > 1 && (feeIsPerMonth || !item.isFixed) && (
+                  <div className="flex flex-wrap items-center gap-1.5 pl-1">
+                    <span className="text-[10px] text-gray-500 font-bold uppercase">Se aplica a:</span>
+                    {sortedMonths.map(month => {
+                      const applies = !item.excluded.includes(month);
+                      return (
+                        <button
+                          key={month}
+                          type="button"
+                          aria-pressed={applies}
+                          onClick={() => toggleItemMonth(index, month)}
+                          className={`px-2 py-1 text-[10px] font-bold rounded-lg border transition-all ${
+                            applies
+                              ? 'bg-[#E31C25]/15 border-[#E31C25]/50 text-white'
+                              : 'bg-transparent border-[#2a2a2a] text-gray-500 hover:border-gray-500'
+                          }`}
+                        >
+                          {formatMonth(month)}
+                        </button>
+                      );
+                    })}
+                    {!item.isFixed && (
+                      <span className="text-[10px] text-gray-400 ml-1">
+                        {draftLines[index].quantity === 0
+                          ? 'Elige al menos un mes'
+                          : `${draftLines[index].quantity} × ${Number(item.amount || 0).toFixed(2)} € = ${draftLines[index].amount.toFixed(2)} €`}
+                      </span>
+                    )}
+                  </div>
+                )}
                 </div>
               ))}
               

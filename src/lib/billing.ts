@@ -16,7 +16,8 @@ export const ISSUER = {
   email: 'danimirandatrainer@gmail.com',
 };
 
-export type DraftItem = { desc: string; amount: string; isFixed: boolean };
+// excluded: meses cobrados a los que no se aplica este concepto
+export type DraftItem = { desc: string; amount: string; isFixed: boolean; excluded?: string[] };
 export type InvoiceLine = { desc: string; quantity: number; unit_amount: number; amount: number };
 
 const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -39,15 +40,28 @@ export function formatMonths(keys: string[]): string {
 
 const toCents = (value: string | number): number => Math.round((Number(value) || 0) * 100);
 
-// La tarifa se multiplica por los meses, salvo que ya sea el precio de todo el periodo (perMonth = false,
-// p. ej. 390 € por 3 meses). Los conceptos extra se cobran una sola vez.
+// Cada concepto se cobra una vez por cada mes al que se aplica, y si no son todos, la línea dice cuáles.
+// Excepción: la tarifa fija cuando ya es el precio de todo el periodo (perMonth = false, p. ej. 390 € por
+// 3 meses), que se cobra una sola vez. Una línea puede quedar con cantidad 0: no va en la factura.
 export function buildLines(items: DraftItem[], months: string[], perMonth = true): InvoiceLine[] {
   return items.map((item) => {
-    const quantity = item.isFixed && perMonth ? months.length : 1;
     const unitCents = toCents(item.amount);
-    const coversPeriod = item.isFixed && !perMonth && months.length > 1;
+    const name = item.desc.trim();
+
+    if (item.isFixed && !perMonth) {
+      return {
+        desc: months.length > 1 ? `${name.replace(/ Mensual$/, '')} (${months.length} meses)` : name,
+        quantity: 1,
+        unit_amount: unitCents / 100,
+        amount: unitCents / 100,
+      };
+    }
+
+    const chosen = months.filter((month) => !item.excluded?.includes(month));
+    const quantity = chosen.length;
+    const isPartial = quantity > 0 && quantity < months.length;
     return {
-      desc: coversPeriod ? `${item.desc.trim().replace(/ Mensual$/, '')} (${months.length} meses)` : item.desc.trim(),
+      desc: isPartial ? `${name} (${formatMonths(chosen)})` : name,
       quantity,
       unit_amount: unitCents / 100,
       amount: (unitCents * quantity) / 100,
