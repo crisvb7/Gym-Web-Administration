@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, Loader2, Recei
 import { supabase } from "./lib/supabase";
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDF } from '../components/InvoicePDF';
-import { SIMPLIFIED_INVOICE_LIMIT, VAT_RATE, buildLines, formatMonths, invoiceReference, invoiceTotals, monthKey, monthKeyOf } from './lib/billing';
+import { SIMPLIFIED_INVOICE_LIMIT, VAT_RATE, buildLines, formatMonths, invoiceReference, invoiceTotals, monthKey } from './lib/billing';
 
 export function BillingManager() {
   const [clients, setClients] = useState<any[]>([]);
@@ -29,11 +29,12 @@ export function BillingManager() {
   const MONTHS_LIST = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
   // Meses a cobrar, como 'YYYY-MM-01'
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
-  const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+  // Primer mes de los 12 que muestra el selector
+  const [pickerStart, setPickerStart] = useState(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1));
   // Meses que el cliente del modal ya tiene pagados
   const [paidMonths, setPaidMonths] = useState<string[]>([]);
-  // La tarifa del cliente puede ser mensual o el precio de todo el periodo
-  const [feeIsPerMonth, setFeeIsPerMonth] = useState(false);
+  // La tarifa se cobra una vez por mes, salvo que ya sea el precio de todo el periodo
+  const [feeIsPerMonth, setFeeIsPerMonth] = useState(true);
 
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -140,8 +141,8 @@ export function BillingManager() {
     }
     setPaidMonths((periods || []).map((p: any) => p.period_month));
     setSelectedMonths([monthKey(currentMonth)]);
-    setPickerYear(currentMonth.getFullYear());
-    setFeeIsPerMonth(false);
+    setPickerStart(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+    setFeeIsPerMonth(true);
     setClientToBill(client);
 
     const initialItems = [];
@@ -327,7 +328,9 @@ export function BillingManager() {
                     <>
                       <div className="flex-1 bg-[#121212] border border-[#2a2a2a] rounded-xl p-3 flex items-center gap-2 cursor-not-allowed">
                         <Lock size={14} className="text-gray-600" />
-                        <span className="text-sm text-gray-500 font-medium select-none">{item.desc}</span>
+                        <span className="text-sm text-gray-500 font-medium select-none">
+                          {draftLines[index].desc}{draftLines[index].quantity > 1 && ` × ${draftLines[index].quantity} (${Number(item.amount).toFixed(2)} € al mes)`}
+                        </span>
                       </div>
                       <div className="w-32 bg-[#121212] border border-[#2a2a2a] rounded-xl p-3 text-right cursor-not-allowed">
                         <span className="text-sm text-gray-500 font-medium select-none">{draftLines[index].amount.toFixed(2)} €</span>
@@ -368,15 +371,14 @@ export function BillingManager() {
                   <label className="text-xs text-gray-500 uppercase font-bold tracking-wider">
                     Meses que incluye este pago
                   </label>
-                  <div className="flex items-center gap-2 text-white font-bold text-sm">
-                    <button type="button" onClick={() => setPickerYear(pickerYear - 1)} className="p-1 text-gray-400 hover:text-white"><ChevronLeft size={16} /></button>
-                    <span>{pickerYear}</span>
-                    <button type="button" onClick={() => setPickerYear(pickerYear + 1)} className="p-1 text-gray-400 hover:text-white"><ChevronRight size={16} /></button>
+                  <div className="flex items-center gap-1">
+                    <button type="button" title="Meses anteriores" onClick={() => setPickerStart(new Date(pickerStart.getFullYear(), pickerStart.getMonth() - 6, 1))} className="p-1 text-gray-400 hover:text-white"><ChevronLeft size={16} /></button>
+                    <button type="button" title="Meses siguientes" onClick={() => setPickerStart(new Date(pickerStart.getFullYear(), pickerStart.getMonth() + 6, 1))} className="p-1 text-gray-400 hover:text-white"><ChevronRight size={16} /></button>
                   </div>
                 </div>
                 <div className="grid grid-cols-4 gap-3">
-                  {MONTHS_LIST.map((month, index) => {
-                    const key = monthKeyOf(pickerYear, index);
+                  {Array.from({ length: 12 }, (_, offset) => new Date(pickerStart.getFullYear(), pickerStart.getMonth() + offset, 1)).map((date) => {
+                    const key = monthKey(date);
                     const isPaid = paidMonths.includes(key);
                     return (
                       <button
@@ -393,7 +395,8 @@ export function BillingManager() {
                               : 'bg-[#1a1a1a] border-[#2a2a2a] text-gray-400 hover:border-gray-500'
                         }`}
                       >
-                        {month}
+                        {MONTHS_LIST[date.getMonth()]}
+                        <span className="block text-[10px] font-medium opacity-70">{date.getFullYear()}</span>
                       </button>
                     );
                   })}
@@ -405,8 +408,8 @@ export function BillingManager() {
                 </p>
                 {selectedMonths.length > 1 && (
                   <label className="flex items-center gap-2 mt-3 text-xs text-gray-300 cursor-pointer select-none">
-                    <input type="checkbox" checked={feeIsPerMonth} onChange={(e) => setFeeIsPerMonth(e.target.checked)} className="accent-[#E31C25]" />
-                    La tarifa es por mes: multiplicarla por {selectedMonths.length}. Si no se marca, se cobra tal cual, como precio de todo el periodo.
+                    <input type="checkbox" checked={!feeIsPerMonth} onChange={(e) => setFeeIsPerMonth(!e.target.checked)} className="accent-[#E31C25]" />
+                    La tarifa ya es el precio de los {selectedMonths.length} meses: no multiplicarla.
                   </label>
                 )}
                 {overLimit && (

@@ -25,10 +25,6 @@ export function monthKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
 }
 
-export function monthKeyOf(year: number, monthIndex: number): string {
-  return `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
-}
-
 export function formatMonth(key: string): string {
   const [year, month] = key.split('-');
   return `${MONTH_NAMES[Number(month) - 1]} ${year}`;
@@ -43,9 +39,9 @@ export function formatMonths(keys: string[]): string {
 
 const toCents = (value: string | number): number => Math.round((Number(value) || 0) * 100);
 
-// La tarifa del cliente puede ser el precio de un mes o el de todo el periodo (p. ej. 390 € por 3 meses):
-// con perMonth se multiplica por los meses; sin él, se cobra tal cual. Los conceptos extra, una sola vez.
-export function buildLines(items: DraftItem[], months: string[], perMonth = false): InvoiceLine[] {
+// La tarifa se multiplica por los meses, salvo que ya sea el precio de todo el periodo (perMonth = false,
+// p. ej. 390 € por 3 meses). Los conceptos extra se cobran una sola vez.
+export function buildLines(items: DraftItem[], months: string[], perMonth = true): InvoiceLine[] {
   return items.map((item) => {
     const quantity = item.isFixed && perMonth ? months.length : 1;
     const unitCents = toCents(item.amount);
