@@ -6,6 +6,18 @@
 // Art. 4.2 del RD 1619/2012 (utilización de instalaciones deportivas).
 export const SIMPLIFIED_INVOICE_LIMIT = 3000;
 export const VAT_RATE = 21;
+export const DEFAULT_FEE = 50;
+
+// A partir de este día del mes, la cuenta de quien no ha pagado el mes en curso aparece como congelada.
+export const FREEZE_DAY = 6;
+
+export function formatEuros(value: number | string): string {
+  return `${Number(value).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+}
+
+export function addMonths(date: Date, months: number): Date {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
 
 // Datos del emisor que salen en la factura.
 export const ISSUER = {

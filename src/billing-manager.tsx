@@ -1,672 +1,482 @@
-import React, { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, Loader2, Receipt, FileText, Settings, Check, X, Plus, Trash2, Lock, Download, Unlock } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Check, CheckCircle, ChevronLeft, ChevronRight, Download, Loader2, Pencil, Search, Unlock, X } from "lucide-react";
 import { supabase } from "./lib/supabase";
-import { pdf } from '@react-pdf/renderer';
-import { InvoicePDF } from '../components/InvoicePDF';
-import { SIMPLIFIED_INVOICE_LIMIT, VAT_RATE, buildLines, formatMonth, formatMonths, invoiceReference, invoiceTotals, monthKey } from './lib/billing';
+import { downloadInvoice } from "./lib/invoicePdf";
+import { DEFAULT_FEE, FREEZE_DAY, addMonths, formatEuros, formatMonth, formatMonths, invoiceReference, monthKey } from "./lib/billing";
+import { MonthRibbon, PaidMonth } from "./components/billing/MonthRibbon";
+import { ChargeDialog } from "./components/billing/ChargeDialog";
+import { InvoiceDrawer, STATUS_STYLES } from "./components/billing/InvoiceDrawer";
+
+const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white';
+
+type ClientStatus = 'paid' | 'frozen' | 'overdue' | 'pending';
+type Filter = 'all' | ClientStatus;
+type Toast = { kind: 'success' | 'error'; message: string; invoice?: any };
+
+const STATUS: Record<ClientStatus, { label: string; badge: string; bar: string; order: number }> = {
+  frozen: { label: 'Congelado', badge: 'bg-red-500/10 text-red-400 border-red-500/20', bar: 'bg-[#E31C25]', order: 0 },
+  overdue: { label: 'Sin pagar', badge: 'bg-red-500/10 text-red-300 border-red-500/20', bar: 'bg-red-400/70', order: 1 },
+  pending: { label: 'Pendiente', badge: 'bg-gray-800 text-gray-300 border-transparent', bar: 'bg-gray-600', order: 2 },
+  paid: { label: 'Pagado', badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', bar: 'bg-emerald-500', order: 3 },
+};
+
+// PostgREST devuelve como mucho 1000 filas por petición: con 12 meses por cliente se puede superar.
+async function fetchPeriods(from: string, to: string) {
+  const rows: any[] = [];
+  const pageSize = 1000;
+  for (let start = 0; ; start += pageSize) {
+    const { data, error } = await supabase
+      .from('invoice_periods')
+      .select('user_id, period_month, invoice_id, invoice:invoices(invoice_number)')
+      .gte('period_month', from)
+      .lte('period_month', to)
+      .order('period_month')
+      .order('invoice_id')
+      .range(start, start + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) return rows;
+  }
+}
 
 export function BillingManager() {
+  const today = useMemo(() => new Date(), []);
+  const thisMonth = monthKey(today);
+
   const [clients, setClients] = useState<any[]>([]);
-  // Factura que cubre el mes visible, por cliente
-  const [invoiceByUser, setInvoiceByUser] = useState<Record<string, any>>({});
-  // Facturas y rectificativas expedidas en el mes visible
+  const [periods, setPeriods] = useState<any[]>([]);
   const [issuedInvoices, setIssuedInvoices] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isProcessingPdf, setIsProcessingPdf] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  // Seguridad y Edición Fija
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [openMonthDate, setOpenMonthDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [view, setView] = useState<'clients' | 'invoices'>('clients');
+  const [filter, setFilter] = useState<Filter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const [charging, setCharging] = useState<{ client: any; month: string } | null>(null);
+  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(null);
   const [editingFeesId, setEditingFeesId] = useState<string | null>(null);
-  const [tempBaseFee, setTempBaseFee] = useState<string>('');
-  const [tempNutriFee, setTempNutriFee] = useState<string>('');
-  
-  // Estados para el Modal Dinámico
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [clientToBill, setClientToBill] = useState<any>(null);
-  const [currentInvoiceItems, setCurrentInvoiceItems] = useState<{desc: string, amount: string, isFixed: boolean, excluded: string[]}[]>([]);
-  
-  const MONTHS_LIST = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-  // Meses a cobrar, como 'YYYY-MM-01'
-  const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
-  // Primer mes de los 12 que muestra el selector
-  const [pickerStart, setPickerStart] = useState(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1));
-  // Meses que el cliente del modal ya tiene pagados
-  const [paidMonths, setPaidMonths] = useState<string[]>([]);
-  // La tarifa se cobra una vez por mes, salvo que ya sea el precio de todo el periodo
-  const [feeIsPerMonth, setFeeIsPerMonth] = useState(true);
+  const [tempBaseFee, setTempBaseFee] = useState('');
+  const [tempNutriFee, setTempNutriFee] = useState('');
+  const [confirmUnfreezeId, setConfirmUnfreezeId] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
+  const requestId = useRef(0);
 
-  const today = new Date();
-  const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
-  const DEFAULT_FEE = 50.00; 
+  const openMonth = monthKey(openMonthDate);
+  // El mes abierto queda hacia la mitad de la tira, con su pasado y su futuro a los lados.
+  const ribbonMonths = useMemo(
+    () => Array.from({ length: 12 }, (_, i) => monthKey(addMonths(openMonthDate, i - 5))),
+    [openMonthDate],
+  );
 
-  const fetchData = async () => {
-    setLoading(true);
-    
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-      setIsAdmin(profile?.role === 'admin');
-    }
-    
-    const { data: clientsData } = await supabase
-      .from('profiles')
-      .select('id, first_name, last_name, fee, nutrition_fee, payment_status')
-      .eq('role', 'client')
-      .order('first_name', { ascending: true });
-    if (clientsData) setClients(clientsData);
-    
-    const { data: periodsData } = await supabase
-      .from('invoice_periods')
-      .select('user_id, invoice:invoices(*)')
-      .eq('period_month', monthKey(currentMonth));
-    if (periodsData) {
-      setInvoiceByUser(Object.fromEntries(periodsData.map((p: any) => [p.user_id, p.invoice])));
-    }
-
-    const nextMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
-    const { data: issuedData } = await supabase
-      .from('invoices')
-      .select('*')
-      .gte('created_at', currentMonth.toISOString())
-      .lt('created_at', nextMonth.toISOString())
-      .order('created_at', { ascending: false });
-    if (issuedData) setIssuedInvoices(issuedData);
-
-    setLoading(false);
-  };
-
-  useEffect(() => { fetchData(); }, [currentMonth]);
-
-  const handlePrevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
-  const handleNextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
-
-  // --- CONFIGURACIÓN FIJA DE TARIFAS (Solo Admin) ---
-  const openFeeConfig = (client: any) => {
-    setEditingFeesId(client.id);
-    setTempBaseFee((client.fee || DEFAULT_FEE).toString());
-    setTempNutriFee((client.nutrition_fee || 0).toString());
-  };
-
-  const saveFeeConfig = async (clientId: string) => {
-    const base = parseFloat(tempBaseFee) || 0;
-    const nutri = parseFloat(tempNutriFee) || 0;
-
-    const { error } = await supabase.from('profiles').update({ fee: base, nutrition_fee: nutri }).eq('id', clientId);
-
-    if (!error) {
-      setClients(clients.map(c => c.id === clientId ? { ...c, fee: base, nutrition_fee: nutri } : c));
-      setEditingFeesId(null);
-    } else {
-      alert("Error al guardar la configuración.");
-    }
-  };
-
-  // --- NUEVA FUNCIÓN: DESCONGELAR CUENTA ---
-  const handleDescongelarCuenta = async (userId: string, userName: string) => {
-    if (!window.confirm(`¿Confirmas que ${userName} ha abonado la cuota y quieres reactivar su cuenta?`)) return;
-    
+  const fetchData = useCallback(async () => {
+    const id = ++requestId.current;
+    setIsLoading(true);
+    setLoadError(null);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ payment_status: 'paid' })
-        .eq('id', userId);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+        if (id === requestId.current) setIsAdmin(profile?.role === 'admin');
+      }
 
-      if (error) throw error;
-      
-      alert(`✅ Cuenta de ${userName} reactivada correctamente.`);
-      fetchData(); 
+      const nextMonth = addMonths(openMonthDate, 1);
+      const [clientsResult, periodRows, issuedResult] = await Promise.all([
+        supabase.from('profiles').select('id, first_name, last_name, fee, nutrition_fee, payment_status, created_at').eq('role', 'client').order('first_name', { ascending: true }),
+        fetchPeriods(ribbonMonths[0], ribbonMonths[ribbonMonths.length - 1]),
+        supabase.from('invoices').select('*').gte('created_at', openMonthDate.toISOString()).lt('created_at', nextMonth.toISOString()).order('created_at', { ascending: false }),
+      ]);
+      if (clientsResult.error) throw clientsResult.error;
+      if (issuedResult.error) throw issuedResult.error;
+      if (id !== requestId.current) return;
+
+      setClients(clientsResult.data ?? []);
+      setPeriods(periodRows);
+      setIssuedInvoices(issuedResult.data ?? []);
+      setHasLoaded(true);
     } catch (error: any) {
-      alert("Error al reactivar la cuenta: " + error.message);
-    }
-  };
-
-  // --- MODAL DE FACTURACIÓN DINÁMICA ---
-  const toggleMonth = (month: string) => {
-    const adding = !selectedMonths.includes(month);
-    setSelectedMonths(adding ? [...selectedMonths, month] : selectedMonths.filter(m => m !== month));
-
-    // Un mes nuevo se aplica a las tarifas fijas, pero no a los extra ya añadidos (como una fianza).
-    if (adding) {
-      setCurrentInvoiceItems(currentInvoiceItems.map(item => ({
-        ...item,
-        excluded: item.isFixed || selectedMonths.length === 0
-          ? item.excluded.filter(m => m !== month)
-          : [...item.excluded, month],
-      })));
-    }
-  };
-
-  const toggleItemMonth = (index: number, month: string) => {
-    setCurrentInvoiceItems(currentInvoiceItems.map((item, i) => i !== index ? item : {
-      ...item,
-      excluded: item.excluded.includes(month) ? item.excluded.filter(m => m !== month) : [...item.excluded, month],
-    }));
-  };
-
-  const openBillingModal = async (client: any) => {
-    const { data: periods, error } = await supabase
-      .from('invoice_periods')
-      .select('period_month')
-      .eq('user_id', client.id);
-    if (error) {
-      alert("No se han podido comprobar los meses pagados: " + error.message);
-      return;
-    }
-    setPaidMonths((periods || []).map((p: any) => p.period_month));
-    setSelectedMonths([monthKey(currentMonth)]);
-    setPickerStart(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
-    setFeeIsPerMonth(true);
-    setClientToBill(client);
-
-    const initialItems = [];
-    initialItems.push({ desc: 'Cuota Mensual', amount: (client.fee || DEFAULT_FEE).toString(), isFixed: true, excluded: [] as string[] });
-    
-    if (client.nutrition_fee && client.nutrition_fee > 0) {
-      initialItems.push({ desc: 'Servicio de Nutrición', amount: client.nutrition_fee.toString(), isFixed: true, excluded: [] as string[] });
-    }
-
-    setCurrentInvoiceItems(initialItems);
-    setIsModalOpen(true);
-  };
-
-  const addExtraItem = () => {
-    // Empieza en el primer mes cobrado; se pueden marcar más en la propia línea.
-    const others = [...selectedMonths].sort().slice(1);
-    setCurrentInvoiceItems([...currentInvoiceItems, { desc: '', amount: '0', isFixed: false, excluded: others }]);
-  };
-
-  const removeInvoiceItem = (index: number) => {
-    setCurrentInvoiceItems(currentInvoiceItems.filter((_, i) => i !== index));
-  };
-
-  const updateItem = (index: number, field: 'desc' | 'amount', value: string) => {
-    const newItems = [...currentInvoiceItems];
-    newItems[index][field] = value;
-    setCurrentInvoiceItems(newItems);
-  };
-
-  const sortedMonths = [...selectedMonths].sort();
-  const draftLines = buildLines(currentInvoiceItems, sortedMonths, feeIsPerMonth);
-  const { total: totalAmount, base: baseAmount, vat: ivaAmount } = invoiceTotals(draftLines);
-  const overLimit = totalAmount > SIMPLIFIED_INVOICE_LIMIT;
-
-  // Genera el PDF de una factura ya emitida y lo guarda. Si falla, la factura sigue siendo válida
-  // y el PDF se vuelve a generar al descargarla.
-  const storeInvoicePdf = async (invoice: any): Promise<string> => {
-    const pdfBlob = await pdf(<InvoicePDF invoice={invoice} />).toBlob();
-    const filePath = `${invoice.user_id ?? 'sin-cliente'}/${invoice.id}.pdf`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('invoices')
-      .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
-    if (uploadError) throw uploadError;
-
-    const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath);
-    const { error: updateError } = await supabase.from('invoices').update({ pdf_url: urlData.publicUrl }).eq('id', invoice.id);
-    if (updateError) throw updateError;
-
-    return urlData.publicUrl;
-  };
-
-  const confirmPayment = async () => {
-    if (currentInvoiceItems.some(i => i.desc.trim() === '')) {
-      alert("Todos los conceptos extra deben tener un nombre.");
-      return;
-    }
-    if (selectedMonths.length === 0) {
-      alert("Selecciona al menos un mes.");
-      return;
-    }
-    const extraWithoutMonth = currentInvoiceItems.find((item, i) => !item.isFixed && draftLines[i].quantity === 0);
-    if (extraWithoutMonth) {
-      alert(`Elige al menos un mes para el concepto "${extraWithoutMonth.desc.trim()}".`);
-      return;
-    }
-    if (totalAmount <= 0) {
-      alert("El total de la factura debe ser mayor que 0.");
-      return;
-    }
-    if (overLimit) {
-      alert(`Una factura simplificada no puede superar los ${SIMPLIFIED_INVOICE_LIMIT} € con IVA incluido.`);
-      return;
-    }
-
-    setIsProcessingPdf(true);
-    const months = sortedMonths;
-    const invoiceLines = draftLines.filter(l => l.quantity > 0);
-    const description = `${invoiceLines.map(l => l.desc).join(' + ')} (${formatMonths(months)})`;
-
-    const { data: newInvoice, error: insertError } = await supabase.from('invoices').insert([{
-      user_id: clientToBill.id,
-      amount: totalAmount,
-      description,
-      status: 'pagada',
-      due_date: months[0],
-      period_months: months,
-      lines: invoiceLines,
-      payment_date: new Date().toISOString()
-    }]).select().single();
-
-    if (insertError || !newInvoice) {
-      console.error(insertError);
-      // 23505: alguno de los meses ya está pagado (por ejemplo, desde otro dispositivo).
-      alert(insertError?.code === '23505'
-        ? "Alguno de los meses seleccionados ya está pagado. No se ha emitido la factura."
-        : "No se ha emitido la factura: " + (insertError?.message ?? 'error desconocido'));
-      setIsProcessingPdf(false);
-      return;
-    }
-
-    try {
-      await storeInvoicePdf(newInvoice);
-    } catch (err) {
-      console.error(err);
-      alert(`Factura ${newInvoice.invoice_number} emitida, pero no se ha podido guardar el PDF. Se generará al descargarla.`);
-    }
-
-    setIsProcessingPdf(false);
-    setIsModalOpen(false);
-    fetchData();
-  };
-
-  // --- OTRAS FUNCIONES ---
-  const handleDownloadInvoice = async (invoice: any) => {
-    const fileName = `Factura_${invoiceReference(invoice)}.pdf`;
-
-    try {
-      const pdfUrl = invoice.pdf_url || await storeInvoicePdf(invoice);
-      invoice = { ...invoice, pdf_url: pdfUrl };
-
-      const response = await fetch(pdfUrl);
-      const blob = await response.blob();
-
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', fileName);
-      document.body.appendChild(link);
-      
-      link.click();
-      link.parentNode?.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-    } catch (error) {
-      console.error("Error al descargar:", error);
-      if (invoice.pdf_url) window.open(invoice.pdf_url, '_blank');
-      else alert("No se ha podido generar el PDF de la factura.");
-    }
-  };
-
-  const voidInvoice = async (invoice: any) => {
-    const monthsText = invoice.period_months?.length ? ` Los meses ${formatMonths(invoice.period_months)} volverán a estar pendientes.` : '';
-    const reason = window.prompt(
-      `Se anulará la factura ${invoiceReference(invoice)} y se emitirá una factura rectificativa.${monthsText}\n\nMotivo de la anulación:`,
-      'Anulación de la operación'
-    );
-    if (reason === null) return;
-
-    const { data: rectification, error } = await supabase.rpc('void_invoice', { p_invoice_id: invoice.id, p_reason: reason }).single();
-    if (error || !rectification) {
       console.error(error);
-      alert("No se ha podido anular la factura: " + (error?.message ?? 'error desconocido'));
+      if (id === requestId.current) setLoadError(error.message ?? 'Error desconocido');
+    } finally {
+      if (id === requestId.current) setIsLoading(false);
+    }
+  }, [openMonthDate, ribbonMonths]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Un aviso no debe tapar los botones de la ventana que se acaba de abrir.
+  useEffect(() => {
+    if (charging || openInvoiceId) setToast(null);
+  }, [charging, openInvoiceId]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), toast.invoice ? 9000 : 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const paidByUser = useMemo(() => {
+    const map: Record<string, Record<string, PaidMonth>> = {};
+    for (const row of periods) {
+      (map[row.user_id] ??= {})[row.period_month] = { invoice_id: row.invoice_id, invoice_number: row.invoice?.invoice_number ?? null };
+    }
+    return map;
+  }, [periods]);
+
+  const statusOf = useCallback((client: any): ClientStatus => {
+    if (paidByUser[client.id]?.[openMonth]) return 'paid';
+    if (openMonth < thisMonth) return 'overdue';
+    if (openMonth === thisMonth && today.getDate() >= FREEZE_DAY) return 'frozen';
+    return 'pending';
+  }, [paidByUser, openMonth, thisMonth, today]);
+
+  const joinMonthOf = (client: any) => client.created_at ? monthKey(new Date(client.created_at)) : null;
+
+  // Cada mes cuenta solo quienes ya eran clientes entonces, o quienes tienen ese mes pagado.
+  const monthClients = useMemo(() => clients
+    .filter((c) => {
+      const joined = c.created_at ? monthKey(new Date(c.created_at)) : null;
+      return !joined || joined <= openMonth || !!paidByUser[c.id]?.[openMonth];
+    })
+    .map((c) => ({ ...c, status: statusOf(c) })),
+  [clients, openMonth, paidByUser, statusOf]);
+
+  const counts = useMemo(() => {
+    const result: Record<ClientStatus, number> = { paid: 0, frozen: 0, overdue: 0, pending: 0 };
+    for (const c of monthClients) result[c.status as ClientStatus]++;
+    return result;
+  }, [monthClients]);
+
+  const visibleClients = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return monthClients
+      .filter((c) => filter === 'all' || c.status === filter)
+      .filter((c) => !query || `${c.first_name} ${c.last_name}`.toLowerCase().includes(query))
+      .sort((a, b) => STATUS[a.status as ClientStatus].order - STATUS[b.status as ClientStatus].order);
+  }, [monthClients, filter, searchQuery]);
+
+  // Neto del mes: una factura anulada y su rectificativa se compensan.
+  const billedThisMonth = issuedInvoices.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0);
+  const unpaidCount = monthClients.length - counts.paid;
+  const availableFilters = (Object.keys(STATUS) as ClientStatus[]).filter((key) => counts[key] > 0);
+
+  const changeMonth = (delta: number) => {
+    setOpenMonthDate(addMonths(openMonthDate, delta));
+    setFilter('all');
+  };
+
+  const startFeeEdit = (client: any) => {
+    setEditingFeesId(client.id);
+    setTempBaseFee(String(client.fee || DEFAULT_FEE));
+    setTempNutriFee(String(client.nutrition_fee || 0));
+  };
+
+  const saveFees = async (clientId: string) => {
+    const fee = parseFloat(tempBaseFee) || 0;
+    const nutrition_fee = parseFloat(tempNutriFee) || 0;
+    const { error } = await supabase.from('profiles').update({ fee, nutrition_fee }).eq('id', clientId);
+    if (error) {
+      setToast({ kind: 'error', message: `No se ha guardado la tarifa: ${error.message}` });
       return;
     }
+    setClients(clients.map((c) => c.id === clientId ? { ...c, fee, nutrition_fee } : c));
+    setEditingFeesId(null);
+  };
 
-    try {
-      await storeInvoicePdf(rectification);
-    } catch (err) {
-      console.error(err);
-      alert(`Rectificativa ${(rectification as any).invoice_number} emitida, pero no se ha podido guardar el PDF. Se generará al descargarla.`);
+  const unfreeze = async (client: any) => {
+    setConfirmUnfreezeId(null);
+    const { error } = await supabase.from('profiles').update({ payment_status: 'paid' }).eq('id', client.id);
+    if (error) {
+      setToast({ kind: 'error', message: `No se ha reactivado la cuenta: ${error.message}` });
+      return;
     }
+    setToast({ kind: 'success', message: `Cuenta de ${client.first_name} reactivada, sin factura.` });
     fetchData();
   };
 
-  const displayData = clients.filter(c => `${c.first_name} ${c.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()))
-    .map(c => ({ ...c, invoice: invoiceByUser[c.id] }));
+  const downloadFromList = async (invoice: any) => {
+    try {
+      await downloadInvoice(invoice);
+    } catch (error) {
+      console.error(error);
+      setToast({ kind: 'error', message: `No se ha podido generar el PDF de ${invoiceReference(invoice)}.` });
+    }
+  };
 
-  const capitalizedMonthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase());
-  
-  // SOLUCIÓN: Usamos la fecha real, no el 10 hardcodeado
-  const currentDay = today.getDate();
+  const handleIssued = (invoice: any, pdfFailed: boolean) => {
+    setCharging(null);
+    setToast({
+      kind: 'success',
+      message: `Factura ${invoice.invoice_number} emitida: ${formatEuros(invoice.amount)}.${pdfFailed ? ' El PDF se generará al descargarla.' : ''}`,
+      invoice,
+    });
+    fetchData();
+  };
+
+  const handleVoided = (rectification: any, pdfFailed: boolean) => {
+    setOpenInvoiceId(null);
+    setToast({
+      kind: 'success',
+      message: `Factura ${rectification.rectified_number} anulada. Rectificativa ${rectification.invoice_number} emitida.${pdfFailed ? ' El PDF se generará al descargarla.' : ''}`,
+      invoice: rectification,
+    });
+    fetchData();
+  };
 
   return (
     <div className="space-y-6">
-      
-      {/* MODAL EDITOR DE FACTURA */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-[#1a1a1a] border border-[#2a2a2a] w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-[#2a2a2a] flex justify-between items-center bg-[#121212]">
-              <h2 className="text-xl font-bold text-white">Facturar a: {clientToBill.first_name}</h2>
-              <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-gray-500 hover:text-white"/></button>
+      {/* El mes: qué falta por cobrar */}
+      <section aria-label={`Resumen de ${formatMonth(openMonth)}`} className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <h1 className="text-3xl font-bold text-white tracking-tight">Facturación</h1>
+          <div className="flex items-center gap-1 bg-[#1a1a1a] p-1 rounded-xl border border-[#2a2a2a]">
+            <button aria-label="Mes anterior" onClick={() => changeMonth(-1)} className={`p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors ${FOCUS}`}><ChevronLeft size={20} /></button>
+            <div aria-live="polite" className="w-40 text-center font-bold text-white text-sm">{formatMonth(openMonth)}</div>
+            <button aria-label="Mes siguiente" onClick={() => changeMonth(1)} className={`p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors ${FOCUS}`}><ChevronRight size={20} /></button>
+          </div>
+        </div>
+
+        {hasLoaded && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+              <p className="text-xl sm:text-2xl font-bold text-white">
+                {monthClients.length === 0
+                  ? 'Ningún cliente este mes'
+                  : unpaidCount === 0
+                    ? `Han pagado los ${monthClients.length} clientes`
+                    : <>Faltan <span className="text-[#E31C25]">{unpaidCount}</span> de {monthClients.length} clientes por pagar</>}
+              </p>
+              <p className="text-sm text-gray-400 tabular-nums">
+                Facturado en {formatMonth(openMonth).split(' ')[0].toLowerCase()}: <span className="text-white font-bold">{formatEuros(billedThisMonth)}</span>
+              </p>
             </div>
-            
-            <div className="p-6 space-y-4 max-h-[50vh] overflow-y-auto">
-              <p className="text-xs text-gray-400 uppercase font-bold tracking-widest mb-2">Conceptos de la factura</p>
-              
-              {currentInvoiceItems.map((item, index) => (
-                <div key={index} className="space-y-2 animate-in slide-in-from-top-2">
-                <div className="flex gap-2 items-center">
-                  {item.isFixed ? (
-                    <>
-                      <div className="flex-1 bg-[#121212] border border-[#2a2a2a] rounded-xl p-3 flex items-center gap-2 cursor-not-allowed">
-                        <Lock size={14} className="text-gray-600" />
-                        <span className="text-sm text-gray-500 font-medium select-none">
-                          {draftLines[index].desc}{draftLines[index].quantity > 1 && ` × ${draftLines[index].quantity} (${Number(item.amount).toFixed(2)} € al mes)`}
-                        </span>
-                      </div>
-                      <div className="w-32 bg-[#121212] border border-[#2a2a2a] rounded-xl p-3 text-right cursor-not-allowed">
-                        <span className="text-sm text-gray-500 font-medium select-none">{draftLines[index].amount.toFixed(2)} €</span>
-                      </div>
-                      <div className="w-[40px]"></div>
-                    </>
-                  ) : (
-                    <>
-                      <input 
-                        type="text" 
-                        placeholder="Nombre del concepto extra" 
-                        className="flex-1 bg-black border border-[#3f3f46] rounded-xl p-3 text-sm text-white outline-none focus:border-[#E31C25] transition-colors"
-                        value={item.desc}
-                        onChange={(e) => updateItem(index, 'desc', e.target.value)}
-                      />
-                      <input 
-                        type="number" 
-                        placeholder="0.00" 
-                        className="w-32 bg-black border border-[#3f3f46] rounded-xl p-3 text-sm text-white text-right outline-none focus:border-[#E31C25] transition-colors"
-                        value={item.amount}
-                        onChange={(e) => updateItem(index, 'amount', e.target.value)}
-                      />
-                      <button onClick={() => removeInvoiceItem(index)} className="p-3 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-colors">
-                        <Trash2 size={18}/>
-                      </button>
-                    </>
-                  )}
-                </div>
-                {selectedMonths.length > 1 && (feeIsPerMonth || !item.isFixed) && (
-                  <div className="flex flex-wrap items-center gap-1.5 pl-1">
-                    <span className="text-[10px] text-gray-500 font-bold uppercase">Se aplica a:</span>
-                    {sortedMonths.map(month => {
-                      const applies = !item.excluded.includes(month);
-                      return (
-                        <button
-                          key={month}
-                          type="button"
-                          aria-pressed={applies}
-                          onClick={() => toggleItemMonth(index, month)}
-                          className={`px-2 py-1 text-[10px] font-bold rounded-lg border transition-all ${
-                            applies
-                              ? 'bg-[#E31C25]/15 border-[#E31C25]/50 text-white'
-                              : 'bg-transparent border-[#2a2a2a] text-gray-500 hover:border-gray-500'
-                          }`}
-                        >
-                          {formatMonth(month)}
-                        </button>
-                      );
-                    })}
-                    {!item.isFixed && (
-                      <span className="text-[10px] text-gray-400 ml-1">
-                        {draftLines[index].quantity === 0
-                          ? 'Elige al menos un mes'
-                          : `${draftLines[index].quantity} × ${Number(item.amount || 0).toFixed(2)} € = ${draftLines[index].amount.toFixed(2)} €`}
-                      </span>
+            {monthClients.length > 0 && (
+              <div className="flex h-2 rounded-full overflow-hidden bg-[#1a1a1a] gap-px" aria-hidden="true">
+                {(['paid', 'pending', 'overdue', 'frozen'] as ClientStatus[]).map((key) => (
+                  <div key={key} className={`${STATUS[key].bar} transition-[width] duration-500 ease-out motion-reduce:transition-none`} style={{ width: `${(counts[key] / monthClients.length) * 100}%` }} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {loadError && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-sm text-red-200">
+          <span className="flex gap-2"><AlertTriangle size={18} className="shrink-0" />No se han podido cargar los datos: {loadError}</span>
+          <button onClick={fetchData} className={`font-bold underline underline-offset-4 hover:text-white ${FOCUS}`}>Reintentar</button>
+        </div>
+      )}
+
+      {/* Clientes o facturas */}
+      <div className="flex gap-1 border-b border-[#2a2a2a]" role="tablist">
+        {([['clients', 'Clientes'], ['invoices', `Facturas emitidas${hasLoaded ? ` (${issuedInvoices.length})` : ''}`]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            role="tab"
+            aria-selected={view === key}
+            onClick={() => setView(key)}
+            className={`px-4 py-2.5 -mb-px text-sm font-bold border-b-2 transition-colors ${FOCUS} ${view === key ? 'border-[#E31C25] text-white' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'clients' && (
+        <div className="space-y-4">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+              <input
+                type="search"
+                aria-label="Buscar cliente"
+                placeholder="Buscar cliente"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-[#1a1a1a] border border-[#2a2a2a] pl-10 pr-4 py-2.5 rounded-xl text-sm text-white outline-none focus:border-[#E31C25] transition-colors"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar por estado">
+              <FilterChip label="Todos" count={monthClients.length} active={filter === 'all'} onClick={() => setFilter('all')} />
+              {availableFilters.map((key) => (
+                <FilterChip key={key} label={STATUS[key].label} count={counts[key]} active={filter === key} onClick={() => setFilter(key)} />
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+            <span className="flex items-center gap-1.5"><i className="w-5 h-2.5 rounded-sm bg-emerald-500" />Pagado (unido: una sola factura)</span>
+            <span className="flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-sm border border-red-500/40" />Atrasado</span>
+            <span className="flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-sm bg-[#121212] border border-[#3f3f46]" />Sin pagar</span>
+            <span>Pulsa un mes para cobrarlo o ver su factura.</span>
+          </div>
+
+          <div className={`bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl divide-y divide-[#2a2a2a] transition-opacity duration-200 ${isLoading && hasLoaded ? 'opacity-60' : ''}`}>
+            {!hasLoaded && isLoading && Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="p-4 flex items-center gap-4 animate-pulse motion-reduce:animate-none" aria-hidden="true">
+                <div className="h-4 w-40 bg-white/5 rounded" />
+                <div className="h-8 flex-1 bg-white/5 rounded" />
+                <div className="h-8 w-24 bg-white/5 rounded hidden sm:block" />
+              </div>
+            ))}
+
+            {hasLoaded && visibleClients.length === 0 && (
+              <div className="p-10 text-center">
+                <p className="text-gray-400">{searchQuery ? `Ningún cliente coincide con "${searchQuery}".` : 'Ningún cliente en este estado.'}</p>
+                <button onClick={() => { setSearchQuery(''); setFilter('all'); }} className={`mt-2 text-sm font-bold text-white underline underline-offset-4 ${FOCUS}`}>Ver todos los clientes</button>
+              </div>
+            )}
+
+            {visibleClients.map((client) => {
+              const status = client.status as ClientStatus;
+              const paidMonth = paidByUser[client.id]?.[openMonth];
+              const name = `${client.first_name} ${client.last_name}`;
+              return (
+                <div key={client.id} className="p-4 grid gap-x-5 gap-y-3 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_auto] items-center hover:bg-white/[0.02] transition-colors">
+                  <div className="min-w-0">
+                    <p className="font-bold text-white truncate" title={name}>{name}</p>
+                    {editingFeesId === client.id ? (
+                      <form
+                        className="mt-1.5 flex flex-wrap items-center gap-2"
+                        onSubmit={(e) => { e.preventDefault(); saveFees(client.id); }}
+                      >
+                        <label className="text-xs text-gray-500 flex items-center gap-1">Cuota
+                          <input type="number" inputMode="decimal" autoFocus value={tempBaseFee} onChange={(e) => setTempBaseFee(e.target.value)} className="w-16 bg-black border border-[#3f3f46] rounded px-1.5 py-1 text-xs text-white outline-none focus:border-[#E31C25]" />
+                        </label>
+                        <label className="text-xs text-gray-500 flex items-center gap-1">Nutrición
+                          <input type="number" inputMode="decimal" value={tempNutriFee} onChange={(e) => setTempNutriFee(e.target.value)} className="w-16 bg-black border border-[#3f3f46] rounded px-1.5 py-1 text-xs text-white outline-none focus:border-[#E31C25]" />
+                        </label>
+                        <button type="submit" aria-label="Guardar tarifa" className={`p-1 rounded text-emerald-400 hover:bg-emerald-500/20 ${FOCUS}`}><Check size={16} /></button>
+                        <button type="button" aria-label="Cancelar" onClick={() => setEditingFeesId(null)} className={`p-1 rounded text-gray-400 hover:bg-white/10 ${FOCUS}`}><X size={16} /></button>
+                      </form>
+                    ) : (
+                      <p className="text-xs text-gray-500 flex items-center gap-1.5 tabular-nums">
+                        <span className="truncate">{formatEuros(client.fee || DEFAULT_FEE)}{client.nutrition_fee > 0 && ` + ${formatEuros(client.nutrition_fee)} nutrición`}</span>
+                        {isAdmin && (
+                          <button aria-label={`Cambiar la tarifa de ${name}`} title="Cambiar tarifa" onClick={() => startFeeEdit(client)} className={`p-0.5 rounded text-gray-600 hover:text-white transition-colors shrink-0 ${FOCUS}`}><Pencil size={12} /></button>
+                        )}
+                      </p>
                     )}
                   </div>
-                )}
-                </div>
-              ))}
-              
-              <button onClick={addExtraItem} className="w-full mt-4 py-4 border-2 border-dashed border-[#2a2a2a] rounded-xl text-gray-500 hover:text-white hover:border-gray-500 transition-all flex items-center justify-center gap-2 text-sm font-bold bg-white/5">
-                <Plus size={16}/> AÑADIR CONCEPTO EXTRA
-              </button>
-            </div>
 
-            <div className="border-y border-[#2a2a2a] py-5 px-6"> 
-                <div className="flex justify-between items-center mb-3">
-                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider">
-                    Meses que incluye este pago
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <button type="button" title="Meses anteriores" onClick={() => setPickerStart(new Date(pickerStart.getFullYear(), pickerStart.getMonth() - 6, 1))} className="p-1 text-gray-400 hover:text-white"><ChevronLeft size={16} /></button>
-                    <button type="button" title="Meses siguientes" onClick={() => setPickerStart(new Date(pickerStart.getFullYear(), pickerStart.getMonth() + 6, 1))} className="p-1 text-gray-400 hover:text-white"><ChevronRight size={16} /></button>
+                  <div className="min-w-0">
+                    <MonthRibbon
+                      clientName={name}
+                      months={ribbonMonths}
+                      paid={paidByUser[client.id] ?? {}}
+                      openMonth={openMonth}
+                      thisMonth={thisMonth}
+                      joinMonth={joinMonthOf(client)}
+                      onOpenInvoice={setOpenInvoiceId}
+                      onCharge={(month) => setCharging({ client, month })}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between lg:justify-end gap-2 lg:w-[264px]">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${STATUS[status].badge}`}>{STATUS[status].label}</span>
+                    {paidMonth ? (
+                      <button onClick={() => setOpenInvoiceId(paidMonth.invoice_id)} className={`w-[136px] px-3 py-2 rounded-lg border border-[#3f3f46] text-xs font-bold text-gray-200 hover:border-gray-400 hover:text-white transition-colors whitespace-nowrap truncate ${FOCUS}`}>
+                        {invoiceReference({ id: paidMonth.invoice_id, invoice_number: paidMonth.invoice_number })}
+                      </button>
+                    ) : confirmUnfreezeId === client.id ? (
+                      <div className="w-[136px] flex gap-1">
+                        <button onClick={() => unfreeze(client)} className={`flex-1 py-2 rounded-lg bg-white text-zinc-900 text-xs font-bold hover:bg-gray-200 transition-colors ${FOCUS}`}>Reactivar</button>
+                        <button aria-label="Cancelar" onClick={() => setConfirmUnfreezeId(null)} className={`px-2 rounded-lg text-gray-400 hover:bg-white/10 ${FOCUS}`}><X size={14} /></button>
+                      </div>
+                    ) : (
+                      <div className="w-[136px] flex gap-1">
+                        <button onClick={() => setCharging({ client, month: openMonth })} className={`flex-1 py-2 rounded-lg bg-[#E31C25] text-white text-xs font-bold hover:bg-[#c4161e] transition-colors ${FOCUS}`}>Cobrar</button>
+                        {status === 'frozen' && (
+                          <button aria-label={`Reactivar la cuenta de ${name} sin cobrar`} title="Reactivar la cuenta sin cobrar ni emitir factura" onClick={() => setConfirmUnfreezeId(client.id)} className={`px-2.5 rounded-lg border border-[#3f3f46] text-gray-300 hover:text-white hover:border-gray-400 transition-colors ${FOCUS}`}><Unlock size={14} /></button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-3">
-                  {Array.from({ length: 12 }, (_, offset) => new Date(pickerStart.getFullYear(), pickerStart.getMonth() + offset, 1)).map((date) => {
-                    const key = monthKey(date);
-                    const isPaid = paidMonths.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        disabled={isPaid}
-                        title={isPaid ? 'Este mes ya está pagado' : undefined}
-                        onClick={() => toggleMonth(key)}
-                        className={`p-2 text-xs font-bold rounded-lg border transition-all ${
-                          isPaid
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 cursor-not-allowed'
-                            : selectedMonths.includes(key)
-                              ? 'bg-[#E31C25] border-[#E31C25] text-white'
-                              : 'bg-[#1a1a1a] border-[#2a2a2a] text-gray-400 hover:border-gray-500'
-                        }`}
-                      >
-                        {MONTHS_LIST[date.getMonth()]}
-                        <span className="block text-[10px] font-medium opacity-70">{date.getFullYear()}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-[10px] text-gray-400 mt-2">
-                  {selectedMonths.length > 0
-                    ? <>Se cobrarán <span className="text-white font-bold">{selectedMonths.length}</span>: {formatMonths(selectedMonths)}. En verde, los meses ya pagados.</>
-                    : 'Selecciona al menos un mes. En verde, los meses ya pagados.'}
-                </p>
-                {selectedMonths.length > 1 && (
-                  <label className="flex items-center gap-2 mt-3 text-xs text-gray-300 cursor-pointer select-none">
-                    <input type="checkbox" checked={!feeIsPerMonth} onChange={(e) => setFeeIsPerMonth(!e.target.checked)} className="accent-[#E31C25]" />
-                    La tarifa ya es el precio de los {selectedMonths.length} meses: no multiplicarla.
-                  </label>
-                )}
-                {overLimit && (
-                  <p className="text-xs text-red-500 font-bold mt-2">
-                    Supera los {SIMPLIFIED_INVOICE_LIMIT} € con IVA incluido, el máximo legal de una factura simplificada. Reduce los meses de este pago.
-                  </p>
-                )}
-              </div>
-
-            {/* SECCIÓN DE TOTALES CON IVA */}
-            <div className="p-6 bg-[#121212] border-t border-[#2a2a2a] flex justify-between items-center">
-              <div>
-                <div className="flex gap-4 mb-1">
-                  <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">Base: <span className="text-gray-300">{baseAmount.toFixed(2)}€</span></p>
-                  <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">IVA ({VAT_RATE}%): <span className="text-gray-300">{ivaAmount.toFixed(2)}€</span></p>
-                </div>
-                <p className="text-xs text-gray-400 uppercase font-bold mb-1 mt-2">Total Factura</p>
-                <p className="text-3xl font-black text-[#E31C25]">{totalAmount.toFixed(2)} €</p>
-              </div>
-              <button 
-                onClick={confirmPayment} 
-                disabled={isProcessingPdf || overLimit || selectedMonths.length === 0}
-                className="bg-[#E31C25] text-white px-8 py-3 rounded-2xl font-bold hover:bg-[#A6151B] transition-all flex items-center gap-2 shadow-lg disabled:opacity-50"
-              >
-                {isProcessingPdf ? <Loader2 className="animate-spin" size={18}/> : <CheckCircle size={18}/>}
-                CONFIRMAR FACTURA
-              </button>
-            </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* VISTA PRINCIPAL */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Facturación</h1>
-          <p className="text-gray-400 mt-1">Configuración de tarifas y emisión de recibos.</p>
+      {view === 'invoices' && (
+        <div className={`bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl divide-y divide-[#2a2a2a] transition-opacity duration-200 ${isLoading ? 'opacity-60' : ''}`}>
+          {issuedInvoices.length === 0 && (
+            <p className="p-10 text-center text-gray-400">{isLoading ? 'Cargando facturas…' : `No se ha emitido ninguna factura en ${formatMonth(openMonth)}.`}</p>
+          )}
+          {issuedInvoices.map((invoice) => {
+            const status = STATUS_STYLES[invoice.status] ?? { label: invoice.status, className: 'bg-gray-800 text-gray-400' };
+            return (
+              <div key={invoice.id} className="flex items-center gap-2 pr-3 hover:bg-white/[0.02] transition-colors">
+                <button onClick={() => setOpenInvoiceId(invoice.id)} className={`flex-1 min-w-0 p-4 text-left grid gap-x-4 gap-y-1 grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)_100px_110px] items-center rounded-l-2xl ${FOCUS}`}>
+                  <span className={`font-bold text-sm ${invoice.status === 'anulada' ? 'text-gray-500 line-through' : 'text-white'}`}>{invoiceReference(invoice)}</span>
+                  <span className="text-sm text-gray-300 truncate order-3 sm:order-none">{invoice.client_name || '-'}</span>
+                  <span className="text-xs text-gray-500 truncate order-4 sm:order-none">
+                    {invoice.status === 'rectificativa' ? `Rectifica ${invoice.rectified_number}` : formatMonths(invoice.period_months ?? [])}
+                  </span>
+                  <span className={`text-sm text-right tabular-nums order-2 sm:order-none ${invoice.status === 'anulada' ? 'text-gray-500 line-through' : 'text-white'}`}>{formatEuros(invoice.amount)}</span>
+                  <span className={`justify-self-end px-2.5 py-0.5 rounded-full text-xs font-bold order-5 sm:order-none ${status.className}`}>{status.label}</span>
+                </button>
+                <button aria-label={`Descargar ${invoiceReference(invoice)}`} title="Descargar PDF" onClick={() => downloadFromList(invoice)} className={`p-2 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-colors shrink-0 ${FOCUS}`}><Download size={16} /></button>
+              </div>
+            );
+          })}
         </div>
-        <div className="flex items-center gap-4 bg-[#1a1a1a] p-2 rounded-2xl border border-[#2a2a2a]">
-          <button onClick={handlePrevMonth} className="p-2 text-gray-400 hover:text-white"><ChevronLeft size={24} /></button>
-          <div className="w-40 text-center font-bold text-white uppercase tracking-wider">{capitalizedMonthLabel}</div>
-          <button onClick={handleNextMonth} className="p-2 text-gray-400 hover:text-white"><ChevronRight size={24} /></button>
-        </div>
-      </div>
+      )}
 
-      <div className="relative w-full">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-        <input 
-          type="text" 
-          placeholder="Buscar atleta..." 
-          className="w-full bg-[#1a1a1a] border border-[#2a2a2a] pl-12 pr-4 py-4 rounded-2xl text-white outline-none focus:border-[#E31C25] transition-colors"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+      {charging && (
+        <ChargeDialog
+          client={charging.client}
+          initialMonth={charging.month}
+          onClose={() => setCharging(null)}
+          onIssued={handleIssued}
         />
-      </div>
+      )}
 
-      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-[#121212] border-b border-[#2a2a2a] text-gray-400 text-xs uppercase font-bold">
-            <tr>
-              <th className="p-4 pl-6">Atleta</th>
-              <th className="p-4">Tarifas Fijas</th>
-              <th className="p-4 text-center">Estado Mes</th>
-              <th className="p-4 text-right pr-6">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#2a2a2a]">
-            {displayData.map((data) => {
-              // SOLUCIÓN: Calculamos si está congelado en base a si tiene factura, no el estado del perfil
-              const hasInvoiceThisMonth = !!data.invoice;
-              const isFrozen = !hasInvoiceThisMonth && currentDay >= 6;
+      {openInvoiceId && (
+        <InvoiceDrawer
+          invoiceId={openInvoiceId}
+          onClose={() => setOpenInvoiceId(null)}
+          onVoided={handleVoided}
+          onOpenInvoice={setOpenInvoiceId}
+        />
+      )}
 
-              return (
-                <tr key={data.id} className="hover:bg-white/5 transition-colors">
-                  
-                  <td className="p-4 pl-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-[#121212] border border-[#2a2a2a] flex items-center justify-center font-bold text-[#E31C25] shrink-0">
-                        {data.first_name[0]}
-                      </div>
-                      <span className="font-bold text-white block">{data.first_name} {data.last_name}</span>
-                    </div>
-                  </td>
-                  
-                  <td className="p-4">
-                    {editingFeesId === data.id ? (
-                      <div className="flex items-center gap-3 bg-[#121212] p-2 rounded-xl border border-[#3f3f46] w-fit">
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-gray-500 w-12 uppercase font-bold">Cuota:</span>
-                            <input type="number" className="w-16 bg-black border border-[#2a2a2a] rounded px-2 py-1 text-white text-xs outline-none focus:border-[#E31C25]" value={tempBaseFee} onChange={(e) => setTempBaseFee(e.target.value)} />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-gray-500 w-12 uppercase font-bold">Nutri:</span>
-                            <input type="number" className="w-16 bg-black border border-[#2a2a2a] rounded px-2 py-1 text-white text-xs outline-none focus:border-[#E31C25]" value={tempNutriFee} onChange={(e) => setTempNutriFee(e.target.value)} />
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-1 border-l border-[#2a2a2a] pl-3">
-                          <button onClick={() => saveFeeConfig(data.id)} className="p-1 bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded transition-colors"><Check size={14} /></button>
-                          <button onClick={() => setEditingFeesId(null)} className="p-1 bg-red-500/20 text-red-500 hover:bg-red-500 hover:text-white rounded transition-colors"><X size={14} /></button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-4 group/fees">
-                        <div className="text-xs text-gray-400">
-                          <p><strong className="text-gray-300">{data.fee || DEFAULT_FEE}€</strong> <span className="text-[10px]">BASE</span></p>
-                          {data.nutrition_fee > 0 && <p><strong className="text-gray-300">{data.nutrition_fee}€</strong> <span className="text-[10px]">NUTRI</span></p>}
-                        </div>
-                        {isAdmin && (
-                          <button 
-                            onClick={() => openFeeConfig(data)} 
-                            className="p-1.5 bg-[#2a2a2a] text-gray-400 hover:text-white rounded-lg opacity-0 group-hover/fees:opacity-100 transition-all flex items-center gap-1 text-[10px] font-bold"
-                          >
-                            <Settings size={12} /> CONFIGURAR
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-
-                  <td className="p-4 text-center">
-                    {isFrozen ? (
-                      <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase bg-red-500/10 text-red-500 border border-red-500/20">
-                        CONGELADO
-                      </span>
-                    ) : (
-                      <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${data.invoice ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-800 text-gray-400'}`}>
-                        {data.invoice ? 'PAGADO' : 'PENDIENTE'}
-                      </span>
-                    )}
-                  </td>
-
-                  <td className="p-4 text-right pr-6">
-                    <div className="flex justify-end gap-2">
-                      {data.invoice ? (
-                        <>
-                          <button onClick={() => handleDownloadInvoice(data.invoice)} className="p-2 bg-[#2a2a2a] text-gray-400 hover:text-[#10b981] rounded-xl transition-colors" title="Descargar Factura PDF">
-                            <Download size={18} />
-                          </button>
-                          <button onClick={() => voidInvoice(data.invoice)} className="px-4 py-2 bg-[#121212] text-red-500 border border-[#2a2a2a] rounded-xl text-xs font-bold hover:bg-red-500/10">ANULAR</button>
-                        </>
-                      ) : (
-                        <>
-                          {isFrozen && (
-                            <button 
-                              onClick={() => handleDescongelarCuenta(data.id, data.first_name)} 
-                              className="flex items-center gap-1.5 px-4 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl text-xs font-bold hover:bg-red-500 hover:text-white transition-colors"
-                              title="Permitir acceso a la App sin generar factura"
-                            >
-                              <Unlock size={14} /> DESCONGELAR
-                            </button>
-                          )}
-                          <button onClick={() => openBillingModal(data)} className="px-6 py-2 bg-[#E31C25] text-white rounded-xl text-xs font-bold hover:bg-[#A6151B] transition-all shadow-lg">MARCAR PAGADO</button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* FACTURAS EXPEDIDAS EN EL MES (incluye anuladas y rectificativas, que deben conservarse) */}
-      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl overflow-hidden">
-        <div className="p-4 pl-6 border-b border-[#2a2a2a] bg-[#121212] text-gray-400 text-xs uppercase font-bold">
-          Facturas expedidas en {capitalizedMonthLabel}
+      {toast && (
+        <div role="status" className="fixed bottom-4 left-4 right-4 sm:left-auto sm:max-w-md z-[300] bg-[#121212] border border-[#3f3f46] rounded-xl shadow-2xl p-4 flex items-start gap-3 motion-safe:animate-in motion-safe:slide-in-from-bottom-4 motion-safe:fade-in duration-300">
+          {toast.kind === 'success'
+            ? <CheckCircle size={18} className="text-emerald-400 shrink-0 mt-0.5" />
+            : <AlertTriangle size={18} className="text-red-400 shrink-0 mt-0.5" />}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-white">{toast.message}</p>
+            {toast.invoice && (
+              <button onClick={() => downloadFromList(toast.invoice)} className={`mt-1 text-sm font-bold text-gray-300 hover:text-white underline underline-offset-4 ${FOCUS}`}>Descargar PDF</button>
+            )}
+          </div>
+          <button aria-label="Cerrar aviso" onClick={() => setToast(null)} className={`text-gray-500 hover:text-white rounded ${FOCUS}`}><X size={16} /></button>
         </div>
-        {issuedInvoices.length === 0 ? (
-          <p className="p-6 text-sm text-gray-500">No se ha expedido ninguna factura este mes.</p>
-        ) : (
-          <table className="w-full text-left">
-            <tbody className="divide-y divide-[#2a2a2a]">
-              {issuedInvoices.map((invoice) => (
-                <tr key={invoice.id}>
-                  <td className="p-4 pl-6 font-bold text-white text-sm">{invoiceReference(invoice)}</td>
-                  <td className="p-4 text-sm text-gray-300">{invoice.client_name || '-'}</td>
-                  <td className="p-4 text-xs text-gray-400">
-                    {invoice.status === 'rectificativa'
-                      ? `Rectifica ${invoice.rectified_number}`
-                      : formatMonths(invoice.period_months ?? [])}
-                  </td>
-                  <td className="p-4 text-sm text-gray-300 text-right">{Number(invoice.amount).toFixed(2)} €</td>
-                  <td className="p-4 text-center">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${
-                      invoice.status === 'pagada' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-800 text-gray-400'
-                    }`}>
-                      {invoice.status}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right pr-6">
-                    <button onClick={() => handleDownloadInvoice(invoice)} className="p-2 bg-[#2a2a2a] text-gray-400 hover:text-[#10b981] rounded-xl transition-colors" title="Descargar PDF">
-                      <Download size={18} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      )}
+
+      {isLoading && hasLoaded && <Loader2 aria-label="Actualizando" className="fixed top-4 right-4 animate-spin text-[#E31C25] z-[100]" size={18} />}
     </div>
+  );
+}
+
+function FilterChip({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors whitespace-nowrap ${FOCUS} ${
+        active ? 'bg-white text-zinc-900 border-white' : 'bg-transparent text-gray-400 border-[#2a2a2a] hover:text-white hover:border-gray-500'
+      }`}
+    >
+      {label} <span className={`tabular-nums ${active ? 'text-zinc-500' : 'text-gray-500'}`}>{count}</span>
+    </button>
   );
 }
