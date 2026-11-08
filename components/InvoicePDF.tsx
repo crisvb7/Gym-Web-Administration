@@ -28,6 +28,8 @@ registerInvoiceFonts();
 // Sin guiones de partición: nombres y números de factura no se cortan.
 Font.registerHyphenationCallback((word) => [word]);
 
+const BRAND_LINE = `${ISSUER.name} | Expertos en movimiento`;
+
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
 const MARGIN = 48;
@@ -54,7 +56,7 @@ const styles = StyleSheet.create({
   brand: { flexDirection: 'row', alignItems: 'center' },
   plate: { width: 45, height: 56, marginRight: 14 },
   plateLogo: { position: 'absolute', left: 4, top: 5, width: 37, height: 46, objectFit: 'contain' },
-  brandName: { fontWeight: 700, fontSize: 13, color: WHITE, lineHeight: 1.2 },
+  brandName: { fontWeight: 700, fontSize: 10.5, color: WHITE, lineHeight: 1.2 },
   brandTag: { fontFamily: 'Mono', fontSize: 6.5, color: MUTED, letterSpacing: 1, marginTop: 4 },
   docRight: { alignItems: 'flex-end' },
   docType: { fontFamily: 'Mono', fontWeight: 700, fontSize: 6.5, color: RED, letterSpacing: 1.3 },
@@ -179,7 +181,7 @@ export const InvoicePDF = ({ invoice }: { invoice: any }) => {
               <Image src="/logo-invoice.png" style={styles.plateLogo} />
             </View>
             <View>
-              <Text style={styles.brandName}>{ISSUER.tradeName}</Text>
+              <Text style={styles.brandName}>{BRAND_LINE}</Text>
               <Text style={styles.brandTag}>TRAINING SYSTEMS / {ISSUER.city.toUpperCase()}</Text>
             </View>
           </View>
@@ -275,7 +277,7 @@ export const InvoicePDF = ({ invoice }: { invoice: any }) => {
 
         <View style={styles.footer} fixed>
           <View>
-            <Text style={styles.footerName}>{ISSUER.name} · {ISSUER.tradeName}</Text>
+            <Text style={styles.footerName}>{BRAND_LINE}</Text>
             <Text style={styles.footerText}>{ISSUER.email} · {ISSUER.city}</Text>
           </View>
           <Text style={styles.footerTag}>MOVE / TRAIN / EVOLVE</Text>
