@@ -33,6 +33,7 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "dev": "vite",
+    "dev:local": "vite --mode test",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },

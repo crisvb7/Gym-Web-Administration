@@ -3,10 +3,14 @@ import { ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, Loader2, Recei
 import { supabase } from "./lib/supabase";
 import { pdf } from '@react-pdf/renderer';
 import { InvoicePDF } from '../components/InvoicePDF';
+import { SIMPLIFIED_INVOICE_LIMIT, VAT_RATE, buildLines, formatMonths, invoiceReference, invoiceTotals, monthKey, monthKeyOf } from './lib/billing';
 
 export function BillingManager() {
   const [clients, setClients] = useState<any[]>([]);
-  const [invoices, setInvoices] = useState<any[]>([]);
+  // Factura que cubre el mes visible, por cliente
+  const [invoiceByUser, setInvoiceByUser] = useState<Record<string, any>>({});
+  // Facturas y rectificativas expedidas en el mes visible
+  const [issuedInvoices, setIssuedInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isProcessingPdf, setIsProcessingPdf] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -23,7 +27,13 @@ export function BillingManager() {
   const [currentInvoiceItems, setCurrentInvoiceItems] = useState<{desc: string, amount: string, isFixed: boolean}[]>([]);
   
   const MONTHS_LIST = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  // Meses a cobrar, como 'YYYY-MM-01'
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
+  const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+  // Meses que el cliente del modal ya tiene pagados
+  const [paidMonths, setPaidMonths] = useState<string[]>([]);
+  // La tarifa del cliente puede ser mensual o el precio de todo el periodo
+  const [feeIsPerMonth, setFeeIsPerMonth] = useState(false);
 
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -45,10 +55,23 @@ export function BillingManager() {
       .order('first_name', { ascending: true });
     if (clientsData) setClients(clientsData);
     
-    const monthStr = currentMonth.toISOString().split('T')[0]; 
-    const { data: invoicesData } = await supabase.from('invoices').select('*').eq('due_date', monthStr);
-    if (invoicesData) setInvoices(invoicesData);
-    
+    const { data: periodsData } = await supabase
+      .from('invoice_periods')
+      .select('user_id, invoice:invoices(*)')
+      .eq('period_month', monthKey(currentMonth));
+    if (periodsData) {
+      setInvoiceByUser(Object.fromEntries(periodsData.map((p: any) => [p.user_id, p.invoice])));
+    }
+
+    const nextMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
+    const { data: issuedData } = await supabase
+      .from('invoices')
+      .select('*')
+      .gte('created_at', currentMonth.toISOString())
+      .lt('created_at', nextMonth.toISOString())
+      .order('created_at', { ascending: false });
+    if (issuedData) setIssuedInvoices(issuedData);
+
     setLoading(false);
   };
 
@@ -106,9 +129,21 @@ export function BillingManager() {
     );
   };
 
-  const openBillingModal = (client: any) => {
+  const openBillingModal = async (client: any) => {
+    const { data: periods, error } = await supabase
+      .from('invoice_periods')
+      .select('period_month')
+      .eq('user_id', client.id);
+    if (error) {
+      alert("No se han podido comprobar los meses pagados: " + error.message);
+      return;
+    }
+    setPaidMonths((periods || []).map((p: any) => p.period_month));
+    setSelectedMonths([monthKey(currentMonth)]);
+    setPickerYear(currentMonth.getFullYear());
+    setFeeIsPerMonth(false);
     setClientToBill(client);
-    
+
     const initialItems = [];
     initialItems.push({ desc: 'Cuota Mensual', amount: (client.fee || DEFAULT_FEE).toString(), isFixed: true });
     
@@ -134,69 +169,92 @@ export function BillingManager() {
     setCurrentInvoiceItems(newItems);
   };
 
-  const calculateTotal = () => currentInvoiceItems.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
-  const totalAmount = calculateTotal();
-  const baseAmount = totalAmount / 1.21;
-  const ivaAmount = totalAmount - baseAmount;
+  const draftLines = buildLines(currentInvoiceItems, selectedMonths, feeIsPerMonth);
+  const { total: totalAmount, base: baseAmount, vat: ivaAmount } = invoiceTotals(draftLines);
+  const overLimit = totalAmount > SIMPLIFIED_INVOICE_LIMIT;
+
+  // Genera el PDF de una factura ya emitida y lo guarda. Si falla, la factura sigue siendo válida
+  // y el PDF se vuelve a generar al descargarla.
+  const storeInvoicePdf = async (invoice: any): Promise<string> => {
+    const pdfBlob = await pdf(<InvoicePDF invoice={invoice} />).toBlob();
+    const filePath = `${invoice.user_id ?? 'sin-cliente'}/${invoice.id}.pdf`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('invoices')
+      .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath);
+    const { error: updateError } = await supabase.from('invoices').update({ pdf_url: urlData.publicUrl }).eq('id', invoice.id);
+    if (updateError) throw updateError;
+
+    return urlData.publicUrl;
+  };
 
   const confirmPayment = async () => {
     if (currentInvoiceItems.some(i => i.desc.trim() === '')) {
       alert("Todos los conceptos extra deben tener un nombre.");
       return;
     }
+    if (selectedMonths.length === 0) {
+      alert("Selecciona al menos un mes.");
+      return;
+    }
+    if (totalAmount <= 0) {
+      alert("El total de la factura debe ser mayor que 0.");
+      return;
+    }
+    if (overLimit) {
+      alert(`Una factura simplificada no puede superar los ${SIMPLIFIED_INVOICE_LIMIT} € con IVA incluido.`);
+      return;
+    }
 
     setIsProcessingPdf(true);
-    const monthStr = currentMonth.toISOString().split('T')[0];
-    const combinedDesc = currentInvoiceItems.map(i => i.desc).join(' + ') + (selectedMonths.length > 0 ? ` (Meses: ${selectedMonths.join(', ')})` : '');
-    
+    const months = [...selectedMonths].sort();
+    const description = `${draftLines.map(l => l.desc).join(' + ')} (${formatMonths(months)})`;
+
+    const { data: newInvoice, error: insertError } = await supabase.from('invoices').insert([{
+      user_id: clientToBill.id,
+      amount: totalAmount,
+      description,
+      status: 'pagada',
+      due_date: months[0],
+      period_months: months,
+      lines: draftLines,
+      payment_date: new Date().toISOString()
+    }]).select().single();
+
+    if (insertError || !newInvoice) {
+      console.error(insertError);
+      // 23505: alguno de los meses ya está pagado (por ejemplo, desde otro dispositivo).
+      alert(insertError?.code === '23505'
+        ? "Alguno de los meses seleccionados ya está pagado. No se ha emitido la factura."
+        : "No se ha emitido la factura: " + (insertError?.message ?? 'error desconocido'));
+      setIsProcessingPdf(false);
+      return;
+    }
+
     try {
-      const { data: insertedData, error: insertError } = await supabase.from('invoices').insert([{
-        user_id: clientToBill.id,
-        amount: totalAmount,
-        description: combinedDesc,
-        status: 'pagada',
-        due_date: monthStr,
-        payment_date: new Date().toISOString()
-      }]).select();
-
-      if (insertError || !insertedData) throw insertError;
-      const newInvoice = insertedData[0];
-
-      // Al cobrarle, desbloqueamos también la App
-      await supabase.from('profiles').update({ payment_status: 'paid' }).eq('id', clientToBill.id);
-
-      const monthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
-      const capitalizedMonthLabel = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
-
-      const pdfBlob = await pdf(
-        <InvoicePDF client={clientToBill} invoice={newInvoice} monthLabel={capitalizedMonthLabel} items={currentInvoiceItems} />
-      ).toBlob();
-
-      const filePath = `${clientToBill.id}/${newInvoice.id}.pdf`;
-      await supabase.storage.from('invoices').upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
-
-      const { data: urlData } = supabase.storage.from('invoices').getPublicUrl(filePath);
-      await supabase.from('invoices').update({ pdf_url: urlData.publicUrl }).eq('id', newInvoice.id);
-      
-      setIsModalOpen(false);
-      fetchData();
+      await storeInvoicePdf(newInvoice);
     } catch (err) {
       console.error(err);
-      alert("Error al generar la factura.");
-    } finally {
-      setIsProcessingPdf(false);
+      alert(`Factura ${newInvoice.invoice_number} emitida, pero no se ha podido guardar el PDF. Se generará al descargarla.`);
     }
+
+    setIsProcessingPdf(false);
+    setIsModalOpen(false);
+    fetchData();
   };
 
   // --- OTRAS FUNCIONES ---
   const handleDownloadInvoice = async (invoice: any) => {
-    if (!invoice.pdf_url) return;
+    const fileName = `Factura_${invoiceReference(invoice)}.pdf`;
 
     try {
-      const invoiceNumber = invoice.id.split('-')[0].toUpperCase();
-      const fileName = `Factura_FAC-${invoiceNumber}.pdf`;
+      const pdfUrl = invoice.pdf_url || await storeInvoicePdf(invoice);
+      invoice = { ...invoice, pdf_url: pdfUrl };
 
-      const response = await fetch(invoice.pdf_url);
+      const response = await fetch(pdfUrl);
       const blob = await response.blob();
 
       const url = window.URL.createObjectURL(blob);
@@ -211,21 +269,37 @@ export function BillingManager() {
       
     } catch (error) {
       console.error("Error al descargar:", error);
-      window.open(invoice.pdf_url, '_blank');
+      if (invoice.pdf_url) window.open(invoice.pdf_url, '_blank');
+      else alert("No se ha podido generar el PDF de la factura.");
     }
   };
 
-  const deleteInvoice = async (invoice: any) => {
-    if(confirm("¿Anular pago y borrar factura?")) {
-      await supabase.from('invoices').delete().eq('id', invoice.id);
-      // Al anular, vuelve a estar pendiente de pago
-      await supabase.from('profiles').update({ payment_status: 'pending' }).eq('id', invoice.user_id);
-      fetchData();
+  const voidInvoice = async (invoice: any) => {
+    const monthsText = invoice.period_months?.length ? ` Los meses ${formatMonths(invoice.period_months)} volverán a estar pendientes.` : '';
+    const reason = window.prompt(
+      `Se anulará la factura ${invoiceReference(invoice)} y se emitirá una factura rectificativa.${monthsText}\n\nMotivo de la anulación:`,
+      'Anulación de la operación'
+    );
+    if (reason === null) return;
+
+    const { data: rectification, error } = await supabase.rpc('void_invoice', { p_invoice_id: invoice.id, p_reason: reason }).single();
+    if (error || !rectification) {
+      console.error(error);
+      alert("No se ha podido anular la factura: " + (error?.message ?? 'error desconocido'));
+      return;
     }
+
+    try {
+      await storeInvoicePdf(rectification);
+    } catch (err) {
+      console.error(err);
+      alert(`Rectificativa ${(rectification as any).invoice_number} emitida, pero no se ha podido guardar el PDF. Se generará al descargarla.`);
+    }
+    fetchData();
   };
 
   const displayData = clients.filter(c => `${c.first_name} ${c.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()))
-    .map(c => ({ ...c, invoice: invoices.find(inv => inv.user_id === c.id) }));
+    .map(c => ({ ...c, invoice: invoiceByUser[c.id] }));
 
   const capitalizedMonthLabel = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase());
   
@@ -256,7 +330,7 @@ export function BillingManager() {
                         <span className="text-sm text-gray-500 font-medium select-none">{item.desc}</span>
                       </div>
                       <div className="w-32 bg-[#121212] border border-[#2a2a2a] rounded-xl p-3 text-right cursor-not-allowed">
-                        <span className="text-sm text-gray-500 font-medium select-none">{Number(item.amount).toFixed(2)} €</span>
+                        <span className="text-sm text-gray-500 font-medium select-none">{draftLines[index].amount.toFixed(2)} €</span>
                       </div>
                       <div className="w-[40px]"></div>
                     </>
@@ -290,28 +364,54 @@ export function BillingManager() {
             </div>
 
             <div className="border-y border-[#2a2a2a] py-5 px-6"> 
-                <label className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-3 block">
-                  Meses que incluye este pago
-                </label>
-                <div className="grid grid-cols-4 gap-3">
-                  {MONTHS_LIST.map(month => (
-                    <button
-                      key={month}
-                      type="button"
-                      onClick={() => toggleMonth(month)}
-                      className={`p-2 text-xs font-bold rounded-lg border transition-all ${
-                        selectedMonths.includes(month) 
-                          ? 'bg-[#E31C25] border-[#E31C25] text-white' 
-                          : 'bg-[#1a1a1a] border-[#2a2a2a] text-gray-400 hover:border-gray-500'
-                      }`}
-                    >
-                      {month}
-                    </button>
-                  ))}
+                <div className="flex justify-between items-center mb-3">
+                  <label className="text-xs text-gray-500 uppercase font-bold tracking-wider">
+                    Meses que incluye este pago
+                  </label>
+                  <div className="flex items-center gap-2 text-white font-bold text-sm">
+                    <button type="button" onClick={() => setPickerYear(pickerYear - 1)} className="p-1 text-gray-400 hover:text-white"><ChevronLeft size={16} /></button>
+                    <span>{pickerYear}</span>
+                    <button type="button" onClick={() => setPickerYear(pickerYear + 1)} className="p-1 text-gray-400 hover:text-white"><ChevronRight size={16} /></button>
+                  </div>
                 </div>
-                {selectedMonths.length > 0 && (
-                  <p className="text-[10px] text-gray-400 mt-2">
-                    Total meses seleccionados: <span className="text-white font-bold">{selectedMonths.length}</span>
+                <div className="grid grid-cols-4 gap-3">
+                  {MONTHS_LIST.map((month, index) => {
+                    const key = monthKeyOf(pickerYear, index);
+                    const isPaid = paidMonths.includes(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        disabled={isPaid}
+                        title={isPaid ? 'Este mes ya está pagado' : undefined}
+                        onClick={() => toggleMonth(key)}
+                        className={`p-2 text-xs font-bold rounded-lg border transition-all ${
+                          isPaid
+                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 cursor-not-allowed'
+                            : selectedMonths.includes(key)
+                              ? 'bg-[#E31C25] border-[#E31C25] text-white'
+                              : 'bg-[#1a1a1a] border-[#2a2a2a] text-gray-400 hover:border-gray-500'
+                        }`}
+                      >
+                        {month}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-2">
+                  {selectedMonths.length > 0
+                    ? <>Se cobrarán <span className="text-white font-bold">{selectedMonths.length}</span>: {formatMonths(selectedMonths)}. En verde, los meses ya pagados.</>
+                    : 'Selecciona al menos un mes. En verde, los meses ya pagados.'}
+                </p>
+                {selectedMonths.length > 1 && (
+                  <label className="flex items-center gap-2 mt-3 text-xs text-gray-300 cursor-pointer select-none">
+                    <input type="checkbox" checked={feeIsPerMonth} onChange={(e) => setFeeIsPerMonth(e.target.checked)} className="accent-[#E31C25]" />
+                    La tarifa es por mes: multiplicarla por {selectedMonths.length}. Si no se marca, se cobra tal cual, como precio de todo el periodo.
+                  </label>
+                )}
+                {overLimit && (
+                  <p className="text-xs text-red-500 font-bold mt-2">
+                    Supera los {SIMPLIFIED_INVOICE_LIMIT} € con IVA incluido, el máximo legal de una factura simplificada. Reduce los meses de este pago.
                   </p>
                 )}
               </div>
@@ -321,14 +421,14 @@ export function BillingManager() {
               <div>
                 <div className="flex gap-4 mb-1">
                   <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">Base: <span className="text-gray-300">{baseAmount.toFixed(2)}€</span></p>
-                  <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">IVA (21%): <span className="text-gray-300">{ivaAmount.toFixed(2)}€</span></p>
+                  <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">IVA ({VAT_RATE}%): <span className="text-gray-300">{ivaAmount.toFixed(2)}€</span></p>
                 </div>
                 <p className="text-xs text-gray-400 uppercase font-bold mb-1 mt-2">Total Factura</p>
                 <p className="text-3xl font-black text-[#E31C25]">{totalAmount.toFixed(2)} €</p>
               </div>
               <button 
                 onClick={confirmPayment} 
-                disabled={isProcessingPdf}
+                disabled={isProcessingPdf || overLimit || selectedMonths.length === 0}
                 className="bg-[#E31C25] text-white px-8 py-3 rounded-2xl font-bold hover:bg-[#A6151B] transition-all flex items-center gap-2 shadow-lg disabled:opacity-50"
               >
                 {isProcessingPdf ? <Loader2 className="animate-spin" size={18}/> : <CheckCircle size={18}/>}
@@ -446,7 +546,7 @@ export function BillingManager() {
                           <button onClick={() => handleDownloadInvoice(data.invoice)} className="p-2 bg-[#2a2a2a] text-gray-400 hover:text-[#10b981] rounded-xl transition-colors" title="Descargar Factura PDF">
                             <Download size={18} />
                           </button>
-                          <button onClick={() => deleteInvoice(data.invoice)} className="px-4 py-2 bg-[#121212] text-red-500 border border-[#2a2a2a] rounded-xl text-xs font-bold hover:bg-red-500/10">ANULAR</button>
+                          <button onClick={() => voidInvoice(data.invoice)} className="px-4 py-2 bg-[#121212] text-red-500 border border-[#2a2a2a] rounded-xl text-xs font-bold hover:bg-red-500/10">ANULAR</button>
                         </>
                       ) : (
                         <>
@@ -469,6 +569,45 @@ export function BillingManager() {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* FACTURAS EXPEDIDAS EN EL MES (incluye anuladas y rectificativas, que deben conservarse) */}
+      <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl overflow-hidden">
+        <div className="p-4 pl-6 border-b border-[#2a2a2a] bg-[#121212] text-gray-400 text-xs uppercase font-bold">
+          Facturas expedidas en {capitalizedMonthLabel}
+        </div>
+        {issuedInvoices.length === 0 ? (
+          <p className="p-6 text-sm text-gray-500">No se ha expedido ninguna factura este mes.</p>
+        ) : (
+          <table className="w-full text-left">
+            <tbody className="divide-y divide-[#2a2a2a]">
+              {issuedInvoices.map((invoice) => (
+                <tr key={invoice.id}>
+                  <td className="p-4 pl-6 font-bold text-white text-sm">{invoiceReference(invoice)}</td>
+                  <td className="p-4 text-sm text-gray-300">{invoice.client_name || '-'}</td>
+                  <td className="p-4 text-xs text-gray-400">
+                    {invoice.status === 'rectificativa'
+                      ? `Rectifica ${invoice.rectified_number}`
+                      : formatMonths(invoice.period_months ?? [])}
+                  </td>
+                  <td className="p-4 text-sm text-gray-300 text-right">{Number(invoice.amount).toFixed(2)} €</td>
+                  <td className="p-4 text-center">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase ${
+                      invoice.status === 'pagada' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-800 text-gray-400'
+                    }`}>
+                      {invoice.status}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right pr-6">
+                    <button onClick={() => handleDownloadInvoice(invoice)} className="p-2 bg-[#2a2a2a] text-gray-400 hover:text-[#10b981] rounded-xl transition-colors" title="Descargar PDF">
+                      <Download size={18} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
