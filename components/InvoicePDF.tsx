@@ -1,5 +1,5 @@
 import React from 'react';
-import { Document, Page, Text, View, StyleSheet, Image, Font, Svg, Defs, RadialGradient, Stop, Rect, Polygon } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image, Font, Svg, Defs, RadialGradient, Stop, Rect, Polygon, Line } from '@react-pdf/renderer';
 import { ISSUER, VAT_RATE, formatMonths, invoiceReference } from '../src/lib/billing';
 
 // Registra las fuentes desde cero. Reutilizar una fuente ya usada en otro PDF corrompe letras (tras
@@ -41,6 +41,9 @@ const TEXT = '#D4D4D8';
 const MUTED = '#9A9AA3';
 const RED = '#F0083C';
 
+// Rayas verticales muy tenues del fondo
+const STRIPES = Array.from({ length: Math.floor(PAGE_WIDTH / 9) }, (_, i) => (i + 1) * 9);
+
 const styles = StyleSheet.create({
   page: { backgroundColor: BG, paddingTop: 44, paddingBottom: 92, paddingHorizontal: MARGIN, fontFamily: 'Sans', fontSize: 8, color: TEXT, lineHeight: 1.35 },
 
@@ -69,10 +72,11 @@ const styles = StyleSheet.create({
   badge: { alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 7 },
   badgeText: { fontFamily: 'Mono', fontWeight: 700, fontSize: 6.5, color: WHITE, letterSpacing: 1 },
 
-  band: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: CARD, border: `0.75 solid ${BORDER}`, paddingHorizontal: 14, paddingVertical: 13, marginBottom: 26 },
+  band: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: CARD, border: `0.75 solid ${BORDER}`, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 26 },
   bandAccent: { position: 'absolute', bottom: -0.75, left: -0.75, width: 98, height: 2.5, backgroundColor: RED },
   bandMain: { flex: 1, paddingRight: 16 },
-  bandTitle: { fontWeight: 700, fontSize: 11, color: WHITE, lineHeight: 1.3 },
+  bandLabel: { fontFamily: 'Mono', fontWeight: 700, fontSize: 6.5, color: RED, letterSpacing: 1.2, marginBottom: 4 },
+  bandTitle: { fontWeight: 700, fontSize: 10.5, color: WHITE, lineHeight: 1.3 },
   bandSide: { fontFamily: 'Mono', fontSize: 6.5, color: MUTED, letterSpacing: 1 },
 
   sectionLabel: { fontFamily: 'Mono', fontWeight: 700, fontSize: 6.5, color: MUTED, letterSpacing: 1.2, marginBottom: 7 },
@@ -89,10 +93,10 @@ const styles = StyleSheet.create({
 
   closing: { flexDirection: 'row', alignItems: 'stretch', marginTop: 26 },
   notes: { flex: 1, borderLeft: `2 solid ${RED}`, paddingLeft: 12, paddingTop: 12, marginRight: 34 },
-  notesTitle: { fontFamily: 'Mono', fontWeight: 700, fontSize: 7, color: MUTED, letterSpacing: 1.2, marginBottom: 3 },
+  notesTitle: { fontFamily: 'Mono', fontWeight: 700, fontSize: 7, color: MUTED, letterSpacing: 1.2, marginBottom: 1 },
   notesText: { fontSize: 7.5, color: MUTED, lineHeight: 1.5 },
   totals: { width: 190, backgroundColor: CARD, border: `0.75 solid ${BORDER}`, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 11 },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   totalKey: { fontSize: 7.5, color: MUTED },
   totalValue: { fontWeight: 700, fontSize: 7.5, color: WHITE },
   grandRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTop: `0.75 solid ${BORDER}`, marginTop: 6, paddingTop: 11 },
@@ -113,11 +117,14 @@ const euros = (value: number) =>
 // "Noviembre 2026 y Febrero 2027" → "Noviembre 2026 y febrero 2027"
 const sentenceCase = (text: string) => text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
 
+const NUMBER_WORDS: Record<number, string> = { 2: 'dos', 3: 'tres', 4: 'cuatro', 5: 'cinco', 6: 'seis', 7: 'siete', 8: 'ocho', 9: 'nueve', 10: 'diez', 11: 'once', 12: 'doce' };
+
 const notesFor = (isRectification: boolean, reason: string | undefined, monthCount: number) => {
   if (isRectification) return `Motivo de la rectificación: ${reason || 'no indicado'}.`;
   const issuedBy = `Documento emitido por ${ISSUER.tradeName}.`;
   if (monthCount === 0) return issuedBy;
-  return `Factura correspondiente a ${monthCount === 1 ? 'una mensualidad' : `${monthCount} mensualidades`}. ${issuedBy}`;
+  const fees = monthCount === 1 ? 'una cuota mensual' : `${NUMBER_WORDS[monthCount] ?? monthCount} cuotas mensuales`;
+  return `Factura correspondiente a ${fees}. ${issuedBy}`;
 };
 
 const Card = ({ label, style, children }: { label: string; style: any; children: React.ReactNode }) => (
@@ -156,6 +163,7 @@ export const InvoicePDF = ({ invoice }: { invoice: any }) => {
                 <Stop offset="1" stopColor={RED} stopOpacity={0} />
               </RadialGradient>
             </Defs>
+            {STRIPES.map((x) => <Line key={x} x1={x} y1={0} x2={x} y2={PAGE_HEIGHT} stroke={WHITE} strokeWidth={0.5} strokeOpacity={0.022} />)}
             <Rect x={0} y={0} width={PAGE_WIDTH} height={PAGE_HEIGHT} fill="url(#glow)" />
           </Svg>
         </View>
@@ -190,6 +198,7 @@ export const InvoicePDF = ({ invoice }: { invoice: any }) => {
           </Card>
           <Card label="02 / CLIENTE" style={{ flex: 1, marginRight: 9 }}>
             <Text style={styles.cardName}>{invoice.client_name || '-'}</Text>
+            <Text style={styles.cardText}>Cliente particular</Text>
           </Card>
           <Card label="03 / DATOS" style={{ width: 133 }}>
             <View style={styles.dataRow}>
@@ -207,7 +216,7 @@ export const InvoicePDF = ({ invoice }: { invoice: any }) => {
         {isRectification ? (
           <View style={styles.band} wrap={false}>
             <View style={styles.bandMain}>
-              <Text style={styles.cardLabel}>RECTIFICA A LA FACTURA</Text>
+              <Text style={styles.bandLabel}>RECTIFICA A LA FACTURA</Text>
               <Text style={styles.bandTitle}>{invoice.rectified_number}</Text>
             </View>
             <View style={styles.bandAccent} />
@@ -215,7 +224,7 @@ export const InvoicePDF = ({ invoice }: { invoice: any }) => {
         ) : months.length > 0 ? (
           <View style={styles.band} wrap={false}>
             <View style={styles.bandMain}>
-              <Text style={styles.cardLabel}>PERIODO FACTURADO</Text>
+              <Text style={styles.bandLabel}>PERIODO FACTURADO</Text>
               <Text style={styles.bandTitle}>{sentenceCase(formatMonths(months))}</Text>
             </View>
             <Text style={styles.bandSide}>{months.length === 1 ? '1 MENSUALIDAD' : `${months.length} MENSUALIDADES`}</Text>

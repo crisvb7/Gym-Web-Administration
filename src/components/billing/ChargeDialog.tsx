@@ -304,33 +304,45 @@ export function ChargeDialog({ client, initialMonth, onClose, onIssued }: Props)
 
           {/* La factura tal como saldrá */}
           <aside aria-label="Resumen de la factura" className="bg-[#121212] border-t lg:border-t-0 lg:border-l border-[#2a2a2a] p-5 sm:p-6 lg:overflow-y-auto">
-            <div className="bg-white text-zinc-900 rounded-lg p-5 shadow-lg">
-              <p className="font-bold text-sm">Factura simplificada</p>
-              <p className="text-xs text-zinc-500">{client.first_name} {client.last_name}</p>
-
-              <p className="mt-4 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Periodo</p>
-              <p className="text-xs">{sortedMonths.length ? formatMonths(sortedMonths) : 'Sin meses'}</p>
-
-              <ul className="mt-4 border-t border-zinc-900 divide-y divide-zinc-200">
-                {lines.map((line, index) => line.quantity > 0 && (
-                  <li key={index} className="py-2 flex justify-between gap-3 text-xs">
-                    <span className="min-w-0">
-                      {items[index].desc.trim() ? line.desc : <span className="text-zinc-400">Concepto sin nombre</span>}
-                      {line.quantity > 1 && <span className="text-zinc-500"> × {line.quantity}</span>}
-                    </span>
-                    <span className="font-semibold tabular-nums whitespace-nowrap">{formatEuros(line.amount)}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <dl className="mt-3 border-t border-zinc-200 pt-3 space-y-1 text-xs tabular-nums">
-                <div className="flex justify-between text-zinc-500"><dt>Base imponible</dt><dd>{formatEuros(base)}</dd></div>
-                <div className="flex justify-between text-zinc-500"><dt>IVA ({VAT_RATE} %)</dt><dd>{formatEuros(vat)}</dd></div>
-                <div className="flex justify-between items-baseline pt-2 mt-2 border-t border-zinc-900">
-                  <dt className="font-bold">Total</dt>
-                  <dd className="text-xl font-black">{formatEuros(total)}</dd>
+            <div className="relative overflow-hidden bg-[#0F0F12] text-[#D4D4D8] border border-[#3A3A41] p-5 shadow-lg">
+              <div aria-hidden="true" className="absolute inset-0 bg-[radial-gradient(circle_at_100%_100%,rgba(240,8,60,0.13),transparent_70%)]" />
+              <img src="/logo-invoice-mark.png" alt="" aria-hidden="true" className="absolute -right-6 -bottom-6 w-44" />
+              <div className="relative">
+                <div className="flex justify-between items-start gap-3 pb-3 border-b border-[#2E2E34]">
+                  <img src="/logo-invoice.png" alt="" className="w-8 h-10 object-contain bg-white p-0.5" />
+                  <div className="text-right min-w-0">
+                    <p className="font-mono font-bold text-[9px] tracking-widest text-[#F0083C]">FACTURA SIMPLIFICADA</p>
+                    <p className="text-xs font-bold text-white mt-1 truncate">{client.first_name} {client.last_name}</p>
+                  </div>
                 </div>
-              </dl>
+
+                <div className="relative mt-3 bg-[#1A1A1F] border border-[#3A3A41] px-3 py-2">
+                  <p className="font-mono font-bold text-[9px] tracking-widest text-[#F0083C]">PERIODO FACTURADO</p>
+                  <p className="text-xs font-bold text-white mt-0.5">{sortedMonths.length ? formatMonths(sortedMonths) : 'Sin meses'}</p>
+                  <span aria-hidden="true" className="absolute left-0 -bottom-px w-1/4 h-0.5 bg-[#F0083C]" />
+                </div>
+
+                <ul className="mt-3 border-b border-[#2E2E34] divide-y divide-[#2E2E34]">
+                  {lines.map((line, index) => line.quantity > 0 && (
+                    <li key={index} className="py-2 flex justify-between gap-3 text-xs">
+                      <span className="min-w-0 font-bold text-white">
+                        {items[index].desc.trim() ? line.desc : <span className="font-normal text-[#9A9AA3]">Concepto sin nombre</span>}
+                        {line.quantity > 1 && <span className="font-normal text-[#9A9AA3]"> × {line.quantity}</span>}
+                      </span>
+                      <span className="font-bold text-white tabular-nums whitespace-nowrap">{formatEuros(line.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <dl className="mt-3 bg-[#1A1A1F] border border-[#3A3A41] px-3 py-2.5 space-y-1 text-xs tabular-nums">
+                  <div className="flex justify-between"><dt className="text-[#9A9AA3]">Base imponible</dt><dd className="font-bold text-white">{formatEuros(base)}</dd></div>
+                  <div className="flex justify-between"><dt className="text-[#9A9AA3]">IVA / {VAT_RATE} %</dt><dd className="font-bold text-white">{formatEuros(vat)}</dd></div>
+                  <div className="flex justify-between items-center pt-2 mt-2 border-t border-[#3A3A41]">
+                    <dt className="font-mono font-bold text-[10px] tracking-widest text-white">TOTAL</dt>
+                    <dd className="font-mono font-bold text-xl text-[#F0083C]">{formatEuros(total)}</dd>
+                  </div>
+                </dl>
+              </div>
             </div>
 
             <div className="hidden lg:block">{checkout}</div>

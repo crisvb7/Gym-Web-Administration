@@ -35,22 +35,25 @@ export async function storeInvoicePdf(invoice: any): Promise<string> {
   return urlData.publicUrl;
 }
 
+// Se genera en el momento para que siempre salga con el diseño actual, también en facturas antiguas.
+// El PDF guardado no se toca; solo se usa si no se puede generar.
 export async function downloadInvoice(invoice: any): Promise<void> {
-  const pdfUrl: string = invoice.pdf_url || await storeInvoicePdf(invoice);
-
+  let blob: Blob;
   try {
-    const response = await fetch(pdfUrl);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const url = window.URL.createObjectURL(await response.blob());
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `Factura_${invoiceReference(invoice)}.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
+    blob = await renderInvoicePdf(invoice);
   } catch (error) {
-    console.error('Error al descargar:', error);
-    window.open(pdfUrl, '_blank');
+    if (!invoice.pdf_url) throw error;
+    console.error('Error al generar el PDF:', error);
+    window.open(invoice.pdf_url, '_blank');
+    return;
   }
+
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `Factura_${invoiceReference(invoice)}.pdf`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 }
