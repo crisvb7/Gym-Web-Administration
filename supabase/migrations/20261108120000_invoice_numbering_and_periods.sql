@@ -14,7 +14,7 @@
 create table if not exists public.backup_20261108_invoices as table public.invoices;
 alter table public.backup_20261108_invoices enable row level security;
 create table if not exists public.backup_20261108_profiles as
-  select id, payment_status, paid_until, is_frozen from public.profiles;
+  select id, payment_status from public.profiles;
 alter table public.backup_20261108_profiles enable row level security;
 
 alter table public.invoices
@@ -110,15 +110,6 @@ update public.invoices i
 set period_months = (select array_agg(p.period_month order by p.period_month) from public.invoice_periods p where p.invoice_id = i.id)
 where exists (select 1 from public.invoice_periods p where p.invoice_id = i.id);
 
--- Quien ya tiene meses futuros pagados no debe volver a "pendiente" al generar las clases del mes.
-update public.profiles pr
-set paid_until = greatest(pr.paid_until, v.until)
-from (
-  select user_id, (max(period_month) + interval '1 month')::timestamp at time zone 'Europe/Madrid' as until
-  from public.invoice_periods group by user_id
-) v
-where v.user_id = pr.id and v.until > now();
-
 create or replace function public.invoice_is_staff()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.profiles where id = auth.uid() and role in ('admin', 'trainer'));
@@ -198,8 +189,6 @@ $$;
 -- estaba pagado, la restricción unique deshace todo, número incluido.
 create or replace function public.invoices_after_insert()
 returns trigger language plpgsql security definer set search_path = public as $$
-declare
-  v_until timestamptz;
 begin
   if new.status <> 'pagada' or new.user_id is null then
     return null;
@@ -208,13 +197,11 @@ begin
   insert into public.invoice_periods (invoice_id, user_id, period_month)
   select new.id, new.user_id, m from unnest(new.period_months) m;
 
-  v_until := (new.period_months[cardinality(new.period_months)] + interval '1 month')::timestamp
-             at time zone 'Europe/Madrid';
-  update public.profiles
-  set paid_until = greatest(paid_until, v_until),
-      payment_status = case when greatest(paid_until, v_until) > now() then 'paid' else payment_status end,
-      is_frozen = case when greatest(paid_until, v_until) > now() then false else is_frozen end
-  where id = new.user_id;
+  -- Pagar solo meses ya pasados no reactiva la cuenta: el mes en curso sigue sin pagar.
+  if (new.period_months[cardinality(new.period_months)] + interval '1 month')::timestamp
+     at time zone 'Europe/Madrid' > now() then
+    update public.profiles set payment_status = 'paid' where id = new.user_id;
+  end if;
 
   return null;
 end;
@@ -263,7 +250,6 @@ declare
   v_reason text := coalesce(nullif(trim(p_reason), ''), 'Anulación de la operación');
   v_ref text;
   v_last date;
-  v_until timestamptz;
 begin
   if coalesce(auth.role(), '') <> 'service_role' and not public.invoice_is_staff() then
     raise exception 'No autorizado.' using errcode = '42501';
@@ -300,11 +286,10 @@ begin
 
   if v_old.user_id is not null then
     select max(period_month) into v_last from public.invoice_periods where user_id = v_old.user_id;
-    v_until := case when v_last is null then now()
-                    else (v_last + interval '1 month')::timestamp at time zone 'Europe/Madrid' end;
     update public.profiles
-    set paid_until = v_until,
-        payment_status = case when v_until > now() then 'paid' else 'pending' end
+    set payment_status = case
+      when v_last is not null and (v_last + interval '1 month')::timestamp at time zone 'Europe/Madrid' > now()
+        then 'paid' else 'pending' end
     where id = v_old.user_id;
   end if;
 

@@ -24,10 +24,7 @@ drop policy if exists "Clientes ven sus meses facturados" on public.invoice_peri
 drop table if exists public.invoice_periods;
 drop function if exists public.invoice_is_staff();
 
--- Solo paid_until: el estado de pago de los cobros posteriores a la migración sigue siendo válido.
-update public.profiles p
-set paid_until = b.paid_until
-from public.backup_20261108_profiles b
-where b.id = p.id;
+-- payment_status no se restaura: el de los cobros posteriores a la migración sigue siendo válido.
+-- El de antes de migrar queda en backup_20261108_profiles por si hiciera falta consultarlo.
 
 notify pgrst, 'reload schema';
